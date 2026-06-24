@@ -31,6 +31,17 @@ Build output (`ch.wasm`, `wasm_exec.js`, `config/`) is git-ignored; regenerate w
 `build.sh`. Headless sanity check (no browser): see the Node snippet referenced in
 the commit, or just open the page.
 
+## Verified
+
+Run against the Nucleuz policy test corpus through the WASM build (via a headless
+Node harness), **non-PDF subset = 2,276 files**:
+- **Verdict parity with native: 2,276 / 2,276 (0 disagreements)** — the WASM build
+  is logically identical to the native engine.
+- WASM latency: p50 ~2.8 ms, p95 ~25 ms (≈3–5× slower than native — single-threaded,
+  no parallel scan; still interactive).
+- PDFs (1,457) were **not** run in-process: a bomb PDF OOMs a single JS runtime, so
+  the full set needs the Web-Worker isolation below.
+
 ## Production notes
 
 - **Run the WASM in a Web Worker** and terminate it on a timeout. A malicious PDF
