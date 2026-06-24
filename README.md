@@ -200,6 +200,31 @@ ok   internal/validators   0.25s
 ...  (other packages have no tests)
 ```
 
+## Validation against the Nucleuz policy test corpus
+
+Beyond the bundled synthetic fixtures, the engine was profiled against Nucleuz's
+own DLP **policy test data** (`…/NucleuzDlpEngine_DlpPoliciesRules_*/Test/
+PoliciesTestData`) — a large set of real test files organised into `Matches/` and
+`NonMatches/` per policy, which gives ground truth for both accuracy and timing.
+That corpus is external/proprietary and **not** included in this repo; run it
+yourself with `./ch-inspect --scan <PoliciesTestData> --csv results.csv`.
+
+Results over **3,735 files / 529 MB**:
+
+| Aspect | Result |
+|---|---|
+| Latency (per file) | p50 **754 µs** · p95 **3.2 ms** · p99 **18 ms** |
+| Memory (parent) | peak RSS **~18 MB** |
+| Verdicts | BLOCK 45% · ESCALATE 18% · ALLOW 37% |
+| Match recall — implemented data types | **~100%** (Credit_Card, SSN, SWIFT, Canada_SIN, FR/ES/IT/CA/UK PII, IP…) |
+| Match recall — overall | ~70% (the gap is ~22 policy types outside MVP scope: medical diagnoses, Australia TFN/IHI, AML, …) |
+| Robustness | 24 malformed PDFs would OOM the parser (multi-GB) — contained by per-file process isolation; parent stayed at ~18 MB |
+
+Two findings from this run drove design changes (standalone `EMAIL`/`IP_ADDRESS`
+profiles; PDF process isolation in `--scan`). Full analysis, methodology, and the
+NonMatches cross-detection caveat are in
+[`docs/engine-notes.md`](./docs/engine-notes.md) (see "Real-world profiling").
+
 ## Verdicts
 
 - **ALLOW** — no profile matched (a binary/unsupported type also ALLOWs — nothing to inspect).
