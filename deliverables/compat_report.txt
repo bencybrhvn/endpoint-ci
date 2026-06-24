@@ -2,7 +2,7 @@ Rule compilation report
   Detectors:        37
   LOCAL_CAPABLE:    37
   CLOUD_ONLY:       0
-  Profiles:         8
+  Profiles:         10
 
   credit_card      LOCAL_CAPABLE  regex    patterns=1 validators=[luhn_check]
   iban             LOCAL_CAPABLE  regex    patterns=1 validators=[iban_mod97]

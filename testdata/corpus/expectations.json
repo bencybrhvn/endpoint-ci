@@ -77,5 +77,23 @@
     "profiles": [
       "EU_PII"
     ]
+  },
+  "email_only.txt": {
+    "verdict": "BLOCK",
+    "profiles": [
+      "EMAIL"
+    ]
+  },
+  "ip_single.txt": {
+    "verdict": "ESCALATE",
+    "profiles": [
+      "IP_ADDRESS"
+    ]
+  },
+  "ip_list.txt": {
+    "verdict": "BLOCK",
+    "profiles": [
+      "IP_ADDRESS"
+    ]
   }
 }

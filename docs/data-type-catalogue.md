@@ -171,8 +171,11 @@ Canada + EU national IDs shipped: `canada_sin` (Luhn), `fr_nir` (mod-97),
 `de_tax_id` (ISO 7064 MOD 11,10), `italy_codice_fiscale`, `es_dni` (mod-23),
 `nl_bsn` (11-test), with new **CA_PII** and **EU_PII** profiles.
 
-Engine now has **37 detectors across 8 profiles** (PCI, Financial, US PII, UK PII,
-CA PII, EU PII, PHI/HIPAA, Secrets).
+Standalone **EMAIL** and **IP_ADDRESS** profiles added (so a lone email/IP is
+flagged; email→BLOCK, single IP→ESCALATE, multiple IPs→BLOCK).
+
+Engine now has **37 detectors across 10 profiles** (PCI, Financial, US PII, UK PII,
+CA PII, EU PII, PHI/HIPAA, Secrets, Email, IP).
 
 ## Next step
 The supported list is built. Build the PoC: (1) author RE2 patterns + validators for the leaves into our own rules/profiles definition file; (2) implement the leaf scanner + profile composition engine; (3) synthetic corpus + latency benchmark vs budget (≤50 MB, ≤3% CPU, <100 ms for ≤500 KB).

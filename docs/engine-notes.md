@@ -168,10 +168,13 @@ Run against a labelled policy test corpus (**3,735 files / 529 MB**):
   recall is lower only because the corpus spans ~all policies incl. ~22 types we
   don't implement (medical diagnoses, Australia TFN/IHI, AML…).
 
-### Finding 1 — single-signal types don't BLOCK (by design)
-`IP_Address`-only / email-only files scored 0% detection: the detector fires but no
-*profile* is satisfied by one weak signal (profiles need ≥2 distinct or a strong ID).
-Add a standalone profile per type if lone IP/email should block.
+### Finding 1 — single-signal types didn't BLOCK (now addressed)
+`IP_Address`-only / email-only files originally scored 0%: the detector fired but no
+*profile* was satisfied by one weak signal. **Resolved** by adding standalone `EMAIL`
+and `IP_ADDRESS` profiles. Confidence drives severity: an email (conf 80) → BLOCK; a
+single IP (conf 60) → ESCALATE; ≥2 IPs (instance boost → 65+) → BLOCK. Trade-off: a
+standalone email profile flags any document containing an address — intended (mirrors
+the cloud "E-mail Address" dataset), tune `base_confidence`/`block_threshold` to soften.
 
 ### Finding 2 — PDF parsing is a DoS risk on untrusted input
 ~24 of 1,457 PDFs drove `ledongthuc` to **multi-GB live allocation** (one hit 9.5 GB),

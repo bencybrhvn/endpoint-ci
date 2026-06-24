@@ -1349,6 +1349,26 @@
           }
         ]
       }
+    },
+    {
+      "profile_id": "EMAIL",
+      "profile_name": "Email Address",
+      "data_type": "DT_PII_Personal_Data",
+      "verdict_on_match": "BLOCK",
+      "match": {
+        "op": "detector",
+        "id": "email"
+      }
+    },
+    {
+      "profile_id": "IP_ADDRESS",
+      "profile_name": "IP Address",
+      "data_type": "DT_PII_Personal_Data",
+      "verdict_on_match": "BLOCK",
+      "match": {
+        "op": "detector",
+        "id": "ip_address"
+      }
     }
   ],
   "label_markers": [
