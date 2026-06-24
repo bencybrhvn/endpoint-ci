@@ -27,6 +27,10 @@ logs/
 coverage.out
 __debug_bin*
 
+# Compiled CLI binary (per README: `go build -o ch-inspect ./cmd/ch-inspect`)
+/ch-inspect
+/ch-inspect-*
+
 # Session tracking (local working notes)
 CURRENT_WORK.md
 

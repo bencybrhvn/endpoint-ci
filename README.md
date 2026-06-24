@@ -1,81 +1,203 @@
-# endpoint-ci — `ch_local_inspect`
+# endpoint-ci — local content inspection PoC
 
-A self-contained, **offline** content inspection PoC that runs on the endpoint. It ingests Cyberhaven's **existing cloud-side content inspection rules** (datasets), compiles them into a local pattern database, and returns a structured verdict — **ALLOW / BLOCK / ESCALATE** — using the **same `dataset_id`s as the cloud**, so local and remote verdicts on the same file are directly comparable.
+A self-contained, **offline** content-inspection engine that runs on the endpoint.
+It loads a set of detection rules, extracts text from a file (plaintext, OOXML,
+PDF), and returns a structured verdict — **ALLOW / BLOCK / ESCALATE** — built from
+**detectors** (atomic data types like credit card, SSN, IBAN) composed into
+**profiles** (PCI, US/UK/CA/EU PII, PHI/HIPAA, Secrets, Email, IP).
 
-> Full specification: [`overview.md`](./overview.md). Project context & decisions: [`CLAUDE.md`](./CLAUDE.md), [`DECISIONS.md`](./DECISIONS.md).
+- 37 detectors · 10 profiles · all compile under Go's RE2 engine
+- Document extraction: TXT/CSV, DOCX/XLSX/PPTX, PDF text layer
+- Sensitivity-label fast-path (Microsoft MIP/AIP + custom markers)
+- Within budget: ~p95 3 ms on real files, peak RSS < 20 MB
 
-## Core idea: one rule source
+> Background & design: [`overview.md`](./overview.md) (spec), [`CLAUDE.md`](./CLAUDE.md),
+> [`DECISIONS.md`](./DECISIONS.md), [`docs/engine-notes.md`](./docs/engine-notes.md),
+> [`docs/data-type-catalogue.md`](./docs/data-type-catalogue.md).
 
-Cloud and local inspection **share the same rules**. The rules file is read-only input; `dataset_id`/`rule_id` pass through unmodified into verdicts (`scan_path: "local"`), so drift between local and cloud verdicts on identical content is detectable.
+---
 
-## Implementation note
+## Quick start
 
-Built in **Go** (not the spec's C). Go's standard-library `regexp` *is* an RE2 implementation, so the spec's RE2-compatibility classifier (`LOCAL_CAPABLE` / `LOCAL_APPROXIMATE` / `CLOUD_ONLY`) is native — no cgo. OOXML extraction uses `archive/zip` + `encoding/xml`. See `DECISIONS.md`.
+```bash
+# 1. Get the code
+git clone git@github.com:bencybrhvn/endpoint-ci.git
+cd endpoint-ci
 
-## Resource budget (PoC success criteria)
+# 2. Build a binary (see "Building a binary" for static / cross-platform builds)
+go build -o ch-inspect ./cmd/ch-inspect
 
-- ≤ 50 MB RAM peak · ≤ 3% CPU on a representative event stream
-- < 100 ms end-to-end for files ≤ 500 KB (target p95)
+# 3. Try it on a bundled sample (run from the repo root — see note below)
+./ch-inspect --file testdata/corpus/pci_card.txt
+```
 
-## Status
+Expected output (abridged):
 
-Early PoC. Building **v0** (plaintext/CSV end-to-end), then OOXML, then PDF. See `CURRENT_WORK.md`.
+```json
+{
+  "file": "testdata/corpus/pci_card.txt",
+  "verdict": "BLOCK",
+  "file_type": "plaintext",
+  "scan_duration_us": 111,
+  "profiles": [
+    { "profile_id": "PCI", "data_type": "DT_Financial_PCI", "confidence": 80 },
+    { "profile_id": "FINANCIAL", "confidence": 80 }
+  ]
+}
+```
 
-## Getting Started
+> **Run from the repo root.** The default rules file (`config/rules.json`) references
+> lexicons by relative path (`config/lexicons/…`), so paths resolve when you run from
+> the project root. To run elsewhere, pass `--rules /abs/path/to/config/rules.json`
+> and keep `config/lexicons/` beside it.
 
 ### Prerequisites
-- Go 1.26+
+- **Go 1.26+** (only needed to build; the resulting binary is standalone)
+- macOS or Linux. The one dependency (`github.com/ledongthuc/pdf`) is pure Go — no cgo.
 
-### Build & Run
-```bash
-go build ./...
-go run ./cmd/ch-inspect --rules rules.json --file <path>           # scan a file
-go run ./cmd/ch-inspect --rules rules.json --report               # rule compatibility report
-go run ./cmd/ch-inspect --rules rules.json --bench ./testdata/corpus   # latency p50/p95/p99
-```
+---
 
-### Profile against your own files (real-world impact)
+## Building a binary
 
 ```bash
-go build -o ch-inspect ./cmd/ch-inspect        # build a real binary (don't time `go run`)
-./ch-inspect --rules config/rules.json --scan ~/Documents --top 15
-# options: --max-read-mb (skip huge files) --max-files N --csv out.csv
-#          --include-hidden  --cpuprofile cpu.out  --memprofile mem.out
+# Native binary
+go build -o ch-inspect ./cmd/ch-inspect
+
+# Fully static binary (no libc dependency) — recommended for deployment
+CGO_ENABLED=0 go build -o ch-inspect ./cmd/ch-inspect
+
+# Cross-compile (examples)
+CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -o ch-inspect-linux-amd64 ./cmd/ch-inspect
+CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -o ch-inspect-linux-arm64 ./cmd/ch-inspect
+CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -o ch-inspect-darwin-arm64 ./cmd/ch-inspect
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o ch-inspect.exe         ./cmd/ch-inspect
 ```
 
-`--scan` recursively inspects every regular file and reports latency
-percentiles, throughput, verdict + file-type breakdowns, the slowest files, and
-process memory (heap + peak RSS). Dot-directories (`.git`, …) are skipped by
-default. Add `--cpuprofile`/`--memprofile` then `go tool pprof <file>` for hotspots.
+The binary needs `config/rules.json` and `config/lexicons/` at runtime (pass
+`--rules` to point at them). Everything else is compiled in.
 
-### Test & Benchmark
+---
+
+## Usage
+
 ```bash
-go test ./...
-go test -bench=. -benchmem ./...
+./ch-inspect --file <path>                 # inspect one file → verdict JSON
+./ch-inspect --report                      # rule compatibility report (LOCAL_CAPABLE / CLOUD_ONLY)
+./ch-inspect --bench testdata/corpus       # quick latency p50/p95/p99 over a flat dir
+./ch-inspect --scan <dir>                  # recursively profile real files (see below)
 ```
+
+### Profiling real files (`--scan`)
+
+Recursively inspects every file under a directory and reports latency percentiles,
+throughput, verdict + file-type breakdowns, the slowest files, and process memory.
+Each file is inspected in an isolated child process (RSS cap + timeout) so a
+malformed file can't take down the run.
+
+```bash
+./ch-inspect --scan ~/Documents --top 15 --csv results.csv
+```
+
+### Flags
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `--rules <path>` | `config/rules.json` | rules + profiles definition |
+| `--file <path>` | | inspect a single file |
+| `--report` | | print rule compatibility report and exit |
+| `--bench <dir>` | | latency percentiles over a flat directory |
+| `--scan <dir>` | | recursive real-world profiler |
+| `--max-file-mb <n>` | 16 | size gate: larger files are head/tail inspected only |
+| `--max-read-mb <n>` | 50 | `--scan`: skip files larger than this |
+| `--top <n>` | 10 | `--scan`: show N slowest files |
+| `--max-files <n>` | 0 (all) | `--scan`: cap files processed |
+| `--csv <path>` | | `--scan`: write per-file results CSV |
+| `--include-hidden` | false | `--scan`: include dot-dirs (e.g. `.git`) |
+| `--isolate` | true | `--scan`: per-file child process (crash-safe) |
+| `--rss-cap-mb <n>` | 512 | `--scan`: kill a child exceeding this RSS |
+| `--file-timeout-sec <n>` | 8 | `--scan`: kill a child running longer than this |
+| `--cpuprofile <path>` | | write a CPU pprof profile |
+| `--memprofile <path>` | | write a heap pprof profile |
+
+For pprof: `./ch-inspect --scan <dir> --cpuprofile cpu.out` then `go tool pprof cpu.out`.
+
+---
+
+## Verdicts
+
+- **ALLOW** — no profile matched (a binary/unsupported type also ALLOWs — nothing to inspect).
+- **ESCALATE** — a profile matched but below the block-confidence threshold, or coverage
+  was incomplete (size gate / encrypted / unreadable). Defer to heavier/cloud inspection.
+- **BLOCK** — a profile matched with high confidence. (The PoC *reports* — it never enforces.)
+
+Each matched profile carries the contributing `data_type`, a `confidence`, and its
+`verdict_on_match` ceiling (e.g. the `EMAIL` profile caps at ESCALATE).
+
+---
+
+## Testing
+
+```bash
+go test ./...                  # unit + corpus + document + validator tests
+go test -race -count=1 ./...   # race detector, bypassing the test cache
+go test -bench=. -benchmem ./internal/engine/   # latency/throughput benchmarks
+```
+
+Tests `chdir` to the repo root automatically, so they find `config/` and `testdata/`.
+What's covered:
+- `internal/engine` — corpus (`testdata/corpus` + `expectations.json`), document
+  extraction (`testdata/docs`), early-exit, size gate.
+- `internal/validators` — each checksum (Luhn, IBAN, ABA, VIN, SSN, EIN, NPI, DEA,
+  ITIN, SIN, France NIR, Germany IdNr, Spain DNI, NL BSN) against known-valid values.
+- `tools/validate-rules` — every pattern compiles under RE2; every profile resolves.
+
+Validate the rules file directly:
+
+```bash
+go run ./tools/validate-rules config/rules.json
+```
+
+---
 
 ## Layout
 
 ```
-cmd/ch-inspect/   CLI entrypoint (--file / --report / --bench)
+cmd/ch-inspect/   CLI entrypoint (--file / --report / --bench / --scan)
 internal/
   rules/          rule loading + RE2 compatibility classification
   format/         magic-byte format detection
-  extract/        text extraction (plaintext, OOXML via zip, PDF text layer)
+  extract/        text extraction (plaintext, OOXML via zip, PDF text layer) + size gate
   prefilter/      Aho-Corasick multi-literal matcher (detector gating)
-  label/          OOXML sensitivity-label detection (metadata fast-path + body)
+  label/          sensitivity-label detection (OOXML docProps + PDF XMP, + body)
   scan/           leaf detector scan (parallel, match-capped) + confidence model
-  validators/     luhn, iban (mod-97), aba, vin, ssn, ein, npi, dea
+  validators/     Luhn, IBAN, ABA, VIN, SSN, EIN, NPI, DEA, ITIN, SIN, NIR, …
   profile/        profile composition evaluator
   engine/         pipeline orchestration + verdict
+tools/
+  validate-rules/ compile-check patterns + resolve profile refs
+  name-scan/       reference gazetteer name scorer
+config/           rules.json + lexicons (name gazetteers)
 testdata/corpus/  synthetic text samples (NO real PII)
 testdata/docs/    synthetic DOCX/XLSX/PPTX/PDF fixtures
-config/           rules.json + lexicons
 docs/             design & engine notes
+deliverables/     compat_report.txt, benchmark_results.txt
 ```
 
-Sole third-party dependency: `github.com/ledongthuc/pdf` (pure-Go PDF text). OOXML uses the standard library only.
+Sole third-party dependency: `github.com/ledongthuc/pdf` (pure-Go PDF text). OOXML
+uses the standard library only.
 
-## Deliverables
+---
 
-`compat_report.txt`, `benchmark_results.txt`, `consistency_notes.md` — see `overview.md` §9.
+## Editing the rules
+
+`config/rules.json` defines `detectors` (regex/dictionary leaf types with validators
+and prefilter cues) and `profiles` (boolean compositions with a `verdict_on_match`
+ceiling). After any edit, run `go run ./tools/validate-rules config/rules.json` to
+confirm every pattern is RE2-compatible and every profile reference resolves.
+
+## Status
+
+PoC complete across: rule model, validators, OOXML + PDF extraction, sensitivity
+labels, the latency/memory budget, multi-pattern matcher + parallel scan + early-exit,
+size gate, and a real-world profiler. Open items are tracked in `CURRENT_WORK.md`
+(sensor integration, sandboxed extraction in production, more locales).
