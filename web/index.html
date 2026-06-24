@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>endpoint-ci · WASM demo</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 820px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.35rem; margin-bottom: .2rem; }
+  .sub { color: #888; margin-top: 0; }
+  #status { font-size: .9rem; padding: .4rem .6rem; border-radius: 6px; background: #8881; display: inline-block; }
+  #drop { border: 2px dashed #8886; border-radius: 10px; padding: 2rem; text-align: center; color: #888;
+          margin: 1rem 0; transition: .15s; cursor: pointer; }
+  #drop.over { border-color: #4a90d9; background: #4a90d911; color: inherit; }
+  textarea { width: 100%; min-height: 90px; font: 13px/1.4 ui-monospace, monospace; padding: .6rem;
+             border-radius: 8px; border: 1px solid #8886; box-sizing: border-box; }
+  button { font: inherit; padding: .45rem .9rem; border-radius: 8px; border: 1px solid #8886;
+           background: #4a90d9; color: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .badge { font-weight: 700; padding: .15rem .55rem; border-radius: 999px; color: #fff; font-size: .85rem; }
+  .ALLOW { background:#2e7d32 } .ESCALATE { background:#ef6c00 } .BLOCK { background:#c62828 }
+  pre { background:#8881; padding:1rem; border-radius:8px; overflow:auto; font-size:12.5px; }
+  .row { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; margin:.6rem 0; }
+  .meta { color:#888; font-size:.85rem; }
+  code { background:#8882; padding:0 .25rem; border-radius:4px; }
+</style>
+</head>
+<body>
+  <h1>endpoint-ci — local content inspection, in your browser</h1>
+  <p class="sub">The Go engine compiled to WebAssembly. Files never leave the page — inspection is 100% local.</p>
+  <p id="status">loading WASM…</p>
+
+  <div id="drop">Drop a file here, or click to choose<br><span class="meta">txt · csv · docx · xlsx · pptx · pdf</span></div>
+  <input id="file" type="file" hidden />
+
+  <div class="row">
+    <textarea id="text" placeholder="…or paste text to scan"></textarea>
+  </div>
+  <div class="row"><button id="scanText" disabled>Scan text</button></div>
+
+  <div id="result"></div>
+
+  <p class="meta">Note: this prototype runs the WASM on the main thread for simplicity. In a real
+  extension, run it in a <b>Web Worker</b> and terminate the worker on a timeout — a malicious
+  PDF can drive the parser to high memory (the same finding we contained with process isolation
+  on the endpoint).</p>
+
+<script src="wasm_exec.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const status = $("#status");
+
+async function boot() {
+  const go = new Go();
+  const res = await WebAssembly.instantiateStreaming(fetch("ch.wasm"), go.importObject);
+  go.run(res.instance); // registers chLoadRules / chInspect, then blocks (select{})
+
+  // Fetch rules + lexicons and hand them to the engine.
+  const [rules, given, surn, common] = await Promise.all([
+    fetch("config/rules.json").then(r => r.text()),
+    fetch("config/lexicons/given_names.txt").then(r => r.text()),
+    fetch("config/lexicons/surnames.txt").then(r => r.text()),
+    fetch("config/lexicons/common_words.txt").then(r => r.text()),
+  ]);
+  const r = chLoadRules(rules, given, surn, common);
+  if (r.error) { status.textContent = "rules error: " + r.error; return; }
+  status.textContent = `engine ready · ${r.detectors} detectors · ${r.profiles} profiles`;
+  $("#scanText").disabled = false;
+}
+
+function render(jsonStr) {
+  let v; try { v = JSON.parse(jsonStr); } catch { $("#result").innerHTML = "<pre>"+jsonStr+"</pre>"; return; }
+  if (v.error) { $("#result").innerHTML = `<p style="color:#c62828">${v.error}</p>`; return; }
+  const profs = (v.profiles||[]).map(p => `${p.profile_id} (${p.confidence})`).join(", ") || "—";
+  const labels = (v.labels||[]).map(l => `${l.source}:${l.label}`).join(", ");
+  $("#result").innerHTML = `
+    <div class="row">
+      <span class="badge ${v.verdict}">${v.verdict}</span>
+      <span class="meta">${v.file_type} · ${v.bytes_seen} bytes · ${(v.scan_duration_us/1000).toFixed(2)} ms
+      ${v.short_circuited ? " · short-circuited" : ""}${v.partial_coverage ? " · partial" : ""}</span>
+    </div>
+    <div class="row meta">profiles: ${profs}${labels ? " · labels: "+labels : ""}</div>
+    <pre>${JSON.stringify(v, null, 2)}</pre>`;
+}
+
+// --- file input / drag-drop ---
+const drop = $("#drop"), fileInput = $("#file");
+drop.onclick = () => fileInput.click();
+fileInput.onchange = e => e.target.files[0] && scanFile(e.target.files[0]);
+drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); e.dataTransfer.files[0] && scanFile(e.dataTransfer.files[0]); };
+
+async function scanFile(file) {
+  const buf = new Uint8Array(await file.arrayBuffer());
+  render(chInspect(file.name, buf));
+}
+
+// --- paste text ---
+$("#scanText").onclick = () => {
+  const bytes = new TextEncoder().encode($("#text").value);
+  render(chInspect("pasted.txt", bytes));
+};
+
+boot().catch(e => status.textContent = "boot failed: " + e);
+</script>
+</body>
+</html>

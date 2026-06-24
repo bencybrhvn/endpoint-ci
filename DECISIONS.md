@@ -46,6 +46,29 @@ Each entry: **Context** (why) · **Decision** (what) · **Alternatives** · **Co
 
 ---
 
+## 2026-06-24 — WASM browser demo
+
+**Context:** Evaluate running the engine in a browser extension.
+
+**Decision:** Compile the engine core to WebAssembly (`GOOS=js GOARCH=wasm`). Added
+filesystem-free entrypoints — `rules.LoadBytes(rulesJSON, lexicons)` and
+`engine.InspectData(name, data, …)` — so the WASM layer (`cmd/wasm`, `//go:build js
+&& wasm`) feeds rules + file bytes from JS. A static demo (`web/`) loads the rules,
+accepts a dropped file / pasted text, and shows the verdict. Verified end-to-end
+headlessly via Node (correct verdicts for txt/docx/pdf).
+
+**Why it works:** pure Go, one pure-Go dependency, no cgo; `regexp`/`archive/zip`/
+`encoding/xml`/`flate` all run in WASM. `os/exec`/`syscall` live only in the CLI
+profiler, not the engine. Output ~5.2 MB raw / 1.5 MB gzipped.
+
+**Consequences / constraints:** single-threaded in-browser (`NumCPU`→1; parallel
+scan is a no-op, fine for small files). The PDF DoS has no in-process fix and no
+subprocess in a browser — **run the WASM in a Web Worker and terminate on timeout**
+(the worker is the isolation boundary). Rules stay external (fetched by JS), keeping
+them tunable. Build artifacts are git-ignored; `web/build.sh` regenerates them.
+
+---
+
 ## 2026-06-24 — Real-world profiler + PDF DoS isolation
 
 **Context:** Profiling against real files (a 3,735-file labelled policy corpus) to measure latency/impact surfaced a serious robustness issue.

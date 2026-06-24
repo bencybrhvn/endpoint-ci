@@ -118,6 +118,13 @@ func InspectFile(path string, db *rules.DB, cfg extract.Config) (Verdict, error)
 	if err != nil {
 		return Verdict{}, err
 	}
+	return InspectData(path, data, db, cfg), nil
+}
+
+// InspectData inspects an in-memory file: detect → extract → label → scan →
+// verdict. No filesystem access, so it works in browser/WASM (where bytes come
+// from JS) as well as on the endpoint.
+func InspectData(name string, data []byte, db *rules.DB, cfg extract.Config) Verdict {
 	res := extract.Extract(data, cfg)
 
 	// Sensitivity-label fast-path (OOXML docProps / PDF XMP) runs on the raw bytes
@@ -134,16 +141,16 @@ func InspectFile(path string, db *rules.DB, cfg extract.Config) (Verdict, error)
 		if res.Type == format.Unsupported {
 			disp, note = Allow, "unsupported/binary type — not content-inspected"
 		}
-		v := Verdict{File: path, ScanPath: "local", FileType: res.Type.String(),
+		v := Verdict{File: name, ScanPath: "local", FileType: res.Type.String(),
 			BytesSeen: len(data), Disposition: disp, Labels: meta, Note: note}
 		if len(meta) > 0 {
 			v.Disposition = Block
 			v.Note = "sensitivity label present in metadata (body not extractable)"
 		}
-		return v, nil
+		return v
 	}
 
-	v := Inspect(path, res.Text, db)
+	v := Inspect(name, res.Text, db)
 	v.FileType = res.Type.String()
 	v.Truncated = res.Truncated
 	v.Partial = res.Partial
@@ -163,7 +170,7 @@ func InspectFile(path string, db *rules.DB, cfg extract.Config) (Verdict, error)
 		v.Disposition = Escalate
 		v.Note = "incomplete coverage (size gate / truncation): escalate for full inspection"
 	}
-	return v, nil
+	return v
 }
 
 // Inspect runs detectors + profiles over text and builds a verdict.

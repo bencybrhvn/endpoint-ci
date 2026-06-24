@@ -297,6 +297,21 @@ and prefilter cues) and `profiles` (boolean compositions with a `verdict_on_matc
 ceiling). After any edit, run `go run ./tools/validate-rules config/rules.json` to
 confirm every pattern is RE2-compatible and every profile reference resolves.
 
+## Browser / WASM demo
+
+The engine compiles to WebAssembly and runs in a browser — files are inspected
+entirely in the page, nothing is uploaded. This is the basis for a browser-extension
+deployment.
+
+```bash
+./web/build.sh                          # compile ch.wasm + stage runtime/rules
+cd web && python3 -m http.server 8080   # open http://localhost:8080/
+```
+
+Drop a file (txt/csv/docx/xlsx/pptx/pdf) or paste text → verdict + profiles + scan
+time, computed locally by the same Go engine (~1.5 MB gzipped WASM). See
+[`web/README.md`](./web/README.md) for details and the Web-Worker isolation note.
+
 ## Contributing
 
 See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for setup, conventions, and step-by-step

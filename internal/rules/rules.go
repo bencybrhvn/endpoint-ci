@@ -5,6 +5,7 @@ package rules
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -135,16 +136,36 @@ type DB struct {
 
 func (db *DB) Detector(id string) (*Detector, bool) { d, ok := db.byID[id]; return d, ok }
 
-// Load reads, parses, compiles patterns, and loads lexicons. Lexicon paths in
-// the file are resolved relative to the current working directory.
+// opener resolves a lexicon path to its bytes (os.ReadFile on disk, a map in WASM).
+type opener func(string) ([]byte, error)
+
+// Load reads, parses, compiles patterns, and loads lexicons from disk. Lexicon
+// paths in the file are resolved relative to the current working directory.
 func Load(path string) (*DB, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
+	return build(raw, os.ReadFile)
+}
+
+// LoadBytes builds a DB from in-memory rules JSON and a map of lexicon path →
+// contents (keys must match the dictionary paths in the rules file). For
+// environments without a filesystem (e.g. browser WASM).
+func LoadBytes(rulesJSON []byte, lexicons map[string][]byte) (*DB, error) {
+	return build(rulesJSON, func(p string) ([]byte, error) {
+		b, ok := lexicons[p]
+		if !ok {
+			return nil, fmt.Errorf("lexicon not provided: %s", p)
+		}
+		return b, nil
+	})
+}
+
+func build(raw []byte, open opener) (*DB, error) {
 	var db DB
 	if err := json.Unmarshal(raw, &db); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+		return nil, fmt.Errorf("parse rules: %w", err)
 	}
 	db.byID = map[string]*Detector{}
 	for _, d := range db.Detectors {
@@ -174,7 +195,7 @@ func Load(path string) (*DB, error) {
 			}
 		}
 		if d.Kind == "dictionary" && d.Dict != nil {
-			if err := loadDict(d.Dict); err != nil {
+			if err := loadDict(d.Dict, open); err != nil {
 				return nil, fmt.Errorf("detector %s: %w", d.ID, err)
 			}
 		}
@@ -197,15 +218,15 @@ func Load(path string) (*DB, error) {
 	return &db, nil
 }
 
-func loadDict(d *Dictionary) error {
+func loadDict(d *Dictionary, open opener) error {
 	var err error
-	if d.Given, err = loadSet(d.GivenNames); err != nil {
+	if d.Given, err = loadSet(open, d.GivenNames); err != nil {
 		return err
 	}
-	if d.Surn, err = loadSet(d.Surnames); err != nil {
+	if d.Surn, err = loadSet(open, d.Surnames); err != nil {
 		return err
 	}
-	if d.HighFreq, err = loadSet(d.CommonWords); err != nil {
+	if d.HighFreq, err = loadSet(open, d.CommonWords); err != nil {
 		return err
 	}
 	d.TitleSet = map[string]bool{}
@@ -215,14 +236,13 @@ func loadDict(d *Dictionary) error {
 	return nil
 }
 
-func loadSet(path string) (map[string]bool, error) {
-	f, err := os.Open(path)
+func loadSet(open opener, path string) (map[string]bool, error) {
+	data, err := open(path)
 	if err != nil {
 		return nil, fmt.Errorf("lexicon %s: %w", path, err)
 	}
-	defer f.Close()
 	s := map[string]bool{}
-	sc := bufio.NewScanner(f)
+	sc := bufio.NewScanner(bytes.NewReader(data))
 	for sc.Scan() {
 		if w := strings.ToLower(strings.TrimSpace(sc.Text())); w != "" {
 			s[w] = true
