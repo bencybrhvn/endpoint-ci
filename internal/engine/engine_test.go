@@ -33,8 +33,11 @@ func loadDB(t testing.TB) *rules.DB {
 }
 
 // TestCorpus runs every corpus file and checks verdict + expected profiles.
+// Early-exit is disabled here so the FULL profile set is reported (detection
+// completeness); the short-circuit fast path is covered by TestEarlyExit.
 func TestCorpus(t *testing.T) {
 	db := loadDB(t)
+	db.Conf.EarlyExit.Enabled = false
 	raw, err := os.ReadFile("testdata/corpus/expectations.json")
 	if err != nil {
 		t.Fatal(err)
@@ -77,6 +80,7 @@ func TestCorpus(t *testing.T) {
 // TestDocuments exercises the extraction layer (OOXML, PDF, encrypted) end to end.
 func TestDocuments(t *testing.T) {
 	db := loadDB(t)
+	db.Conf.EarlyExit.Enabled = false // verify full profile set
 	cases := []struct {
 		file    string
 		verdict string
@@ -114,6 +118,34 @@ func TestDocuments(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestEarlyExit verifies the short-circuit: a PII-saturated buffer reaches BLOCK
+// without scanning every detector, and the verdict is still correct.
+func TestEarlyExit(t *testing.T) {
+	db := loadDB(t)
+	if !db.Conf.EarlyExit.Enabled {
+		t.Skip("early-exit disabled in config")
+	}
+	text := makeLarge(200 * 1024) // dense PII in every block
+	v := Inspect("dense", text, db)
+	if v.Disposition != Block {
+		t.Errorf("verdict = %s, want BLOCK", v.Disposition)
+	}
+	if !v.ShortCircuit {
+		t.Errorf("expected short-circuit on a saturated buffer")
+	}
+
+	// With early-exit off, the same buffer must still BLOCK (and report more).
+	db.Conf.EarlyExit.Enabled = false
+	full := Inspect("dense", text, db)
+	if full.Disposition != Block {
+		t.Errorf("full-scan verdict = %s, want BLOCK", full.Disposition)
+	}
+	if len(full.Profiles) < len(v.Profiles) {
+		t.Errorf("full scan should report >= profiles than short-circuit (%d vs %d)",
+			len(full.Profiles), len(v.Profiles))
 	}
 }
 

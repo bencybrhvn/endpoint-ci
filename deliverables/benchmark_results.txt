@@ -1,29 +1,26 @@
 endpoint-ci — benchmark results (darwin/arm64, Go go1.26.1)
-Engine: pure-Go, 27 detectors, 5 profiles. Multi-pattern matcher:
-Aho-Corasick literal prefilter + match cap + parallel detector scan.
+31 detectors, 6 profiles. Aho-Corasick prefilter + match cap + parallel scan
++ priority-ordered batches with early-exit short-circuit.
 
 == Text corpus ==
-Benchmark over 10 files (1341 bytes total)
-  mean: 196.937µs
-  p50:  142.25µs
-  p95:  362.375µs
-  p99:  362.375µs
-  max:  365.833µs
+Benchmark over 12 files (1484 bytes total)
+  mean: 111.993µs
+  p50:  85.209µs
+  p95:  202.208µs
+  p99:  202.208µs
+  max:  203.916µs
 
-== Document corpus (extraction + scan) ==
+== Document corpus ==
 Benchmark over 6 files (19926 bytes total)
-  mean: 235.638µs
-  p50:  92.916µs
-  p95:  473.333µs
-  p99:  473.333µs
-  max:  557.125µs
+  mean: 214.451µs
+  p50:  120.625µs
+  p95:  356.208µs
+  p99:  356.208µs
+  max:  476.917µs
 
 == go test benchmarks ==
-BenchmarkInspect500K-14    	      38	  30888948 ns/op	  16.58 MB/s	 3757541 B/op	   64769 allocs/op
-BenchmarkInspect8K-14      	    1500	    741891 ns/op	  11.07 MB/s	  285595 B/op	    1939 allocs/op
+BenchmarkInspect500K-14    	      39	  29355884 ns/op	  17.45 MB/s	  626307 B/op	     950 allocs/op
+BenchmarkInspect8K-14      	    2170	    541149 ns/op	  15.17 MB/s	  114552 B/op	     755 allocs/op
 
-== Budget (spec: <100ms for <=500KB) ==
-  ~17 MB/s (was 2.8 MB/s).
-  Typical <=8KB:          ~0.7ms   WITHIN budget
-  500KB PII-dense:        ~31ms    WITHIN budget
-  500KB prose+trailing:   ~33ms    WITHIN budget
+== Budget (spec <100ms for <=500KB) ==
+  Typical <=8KB ~0.7ms; 500KB dense ~30ms (short-circuits); 500KB prose ~33ms. WITHIN budget.

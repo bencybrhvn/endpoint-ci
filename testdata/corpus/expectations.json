@@ -53,5 +53,17 @@
   "clean.txt": {
     "verdict": "ALLOW",
     "profiles": []
+  },
+  "itin.txt": {
+    "verdict": "BLOCK",
+    "profiles": [
+      "US_PII"
+    ]
+  },
+  "uk_pii.txt": {
+    "verdict": "BLOCK",
+    "profiles": [
+      "UK_PII"
+    ]
   }
 }

@@ -24,36 +24,38 @@ type Result struct {
 	Samples        []string
 }
 
-// Scan evaluates every detector. Returns results for detectors with >=1 match
-// (regex) or >=1 fired span (dictionary), keyed for profile evaluation.
-func Scan(text string, db *rules.DB) map[string]*Result {
-	out := map[string]*Result{}
-	lower := strings.ToLower(text)
+// Ctx holds the once-per-buffer work (lowercasing + the single multi-pattern
+// prefilter pass) so the engine can scan detector subsets without redoing it.
+type Ctx struct {
+	text, lower string
+	litPresent  []bool
+	hasDigit    bool
+}
 
-	// Single multi-pattern pass: which literal cues are present, and any digit?
-	var litPresent []bool
+// NewCtx runs the one-pass prefilter (Aho-Corasick literals + digit presence).
+func NewCtx(text string, db *rules.DB) *Ctx {
+	c := &Ctx{text: text, lower: strings.ToLower(text)}
 	if db.LitMatcher != nil {
-		litPresent = db.LitMatcher.Present(text)
+		c.litPresent = db.LitMatcher.Present(text)
 	}
-	hasDigit := strings.ContainsAny(text, "0123456789")
+	c.hasDigit = strings.ContainsAny(text, "0123456789")
+	return c
+}
 
-	// Each detector scans independently (matches may overlap across detectors —
-	// e.g. a 10-digit run is both NPI and bank-account-shaped). A single combined
-	// alternation would let detectors steal each other's matches, so we keep them
-	// separate. Detectors are read-only and independent, so we run them across
-	// cores: per-file latency drops ~Ncore× while CPU stays a brief burst.
-	var todo []*rules.Detector
-	for _, d := range db.Detectors {
-		if d.Kind != "dictionary" && skipByPrefilter(d, litPresent, hasDigit) {
-			continue
-		}
-		todo = append(todo, d)
-	}
-
+// ScanDetectors scans the given detectors over the buffer, in parallel across
+// cores (detectors are independent and read-only). Prefilter-skipped detectors
+// are dropped cheaply. Matches may overlap across detectors, so each scans
+// separately — a single combined alternation would let them steal each other's
+// matches.
+func (c *Ctx) ScanDetectors(db *rules.DB, dets []*rules.Detector) map[string]*Result {
+	out := map[string]*Result{}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, runtime.NumCPU())
-	for _, d := range todo {
+	for _, d := range dets {
+		if d.Kind != "dictionary" && skipByPrefilter(d, c.litPresent, c.hasDigit) {
+			continue
+		}
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(d *rules.Detector) {
@@ -61,9 +63,9 @@ func Scan(text string, db *rules.DB) map[string]*Result {
 			defer func() { <-sem }()
 			var r *Result
 			if d.Kind == "dictionary" {
-				r = scanDictionary(text, d, db)
+				r = scanDictionary(c.text, d, db)
 			} else {
-				r = scanRegex(text, lower, d, db)
+				r = scanRegex(c.text, c.lower, d, db)
 			}
 			if r != nil {
 				mu.Lock()
@@ -74,6 +76,11 @@ func Scan(text string, db *rules.DB) map[string]*Result {
 	}
 	wg.Wait()
 	return out
+}
+
+// Scan evaluates every detector (convenience: one batch, no early exit).
+func Scan(text string, db *rules.DB) map[string]*Result {
+	return NewCtx(text, db).ScanDetectors(db, db.Detectors)
 }
 
 // skipByPrefilter reports whether a detector can be skipped without running its

@@ -9,7 +9,12 @@
     "max_instance_boosts": 3,
     "keyword_window": 200,
     "default_fire_threshold": 50,
-    "block_threshold": 65
+    "block_threshold": 65,
+    "early_exit": {
+      "enabled": true,
+      "stop_on_block": true,
+      "max_total_matches": 1000
+    }
   },
   "validators": {
     "luhn_check": "Luhn mod-10 (strip non-digits first)",
@@ -19,7 +24,9 @@
     "ssn_check": "US SSN range rules: area not 000/666/900-999, group not 00, serial not 0000",
     "ein_prefix": "US EIN valid IRS campus prefix table",
     "npi_check": "US NPI Luhn over '80840' + 9 digits",
-    "dea_check": "US DEA: (d1+d3+d5) + 2*(d2+d4+d6) mod 10 == d7"
+    "dea_check": "US DEA: (d1+d3+d5) + 2*(d2+d4+d6) mod 10 == d7",
+    "itin_check": "US ITIN: leads with 9, group digits in 50-65/70-88/90-92/94-99",
+    "sin_check": "Canada SIN / 9-digit Luhn"
   },
   "detectors": [
     {
@@ -697,6 +704,99 @@
           "eyJ"
         ]
       }
+    },
+    {
+      "id": "us_itin",
+      "name": "US Individual Taxpayer ID (ITIN)",
+      "group": "govid",
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
+      "patterns": [
+        "\\b9[0-9]{2}[ -]?[0-9]{2}[ -]?[0-9]{4}\\b"
+      ],
+      "validators": [
+        "itin_check"
+      ],
+      "keywords": [
+        "itin",
+        "taxpayer",
+        "tax id",
+        "individual taxpayer"
+      ],
+      "base_confidence": 50,
+      "prefilter": {
+        "needs_digit": true
+      },
+      "notes": "Format shape; itin_check enforces the 9-lead + group ranges."
+    },
+    {
+      "id": "us_drivers_license",
+      "name": "US Driver's License (generic)",
+      "group": "govid",
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
+      "patterns": [
+        "\\b[A-Z0-9]{6,20}\\b"
+      ],
+      "validators": [],
+      "keywords": [
+        "driver",
+        "license",
+        "licence",
+        "dl no",
+        "dln",
+        "dl#"
+      ],
+      "base_confidence": 25,
+      "best_effort": true,
+      "notes": "State formats vary wildly; generic + keyword-gated, low confidence."
+    },
+    {
+      "id": "us_medicare_mbi",
+      "name": "US Medicare Beneficiary Identifier (MBI)",
+      "group": "health",
+      "data_types": [
+        "DT_PHI_Medical"
+      ],
+      "patterns": [
+        "\\b[1-9][ACDEFGHJKMNPQRTUVWXY][ACDEFGHJKMNPQRTUVWXY0-9][0-9][ACDEFGHJKMNPQRTUVWXY][ACDEFGHJKMNPQRTUVWXY0-9][0-9][ACDEFGHJKMNPQRTUVWXY]{2}[0-9]{2}\\b"
+      ],
+      "validators": [],
+      "keywords": [
+        "medicare",
+        "mbi",
+        "beneficiary"
+      ],
+      "base_confidence": 50,
+      "prefilter": {
+        "needs_digit": true
+      },
+      "notes": "11-char MBI char-class (excludes S,L,O,I,B,Z)."
+    },
+    {
+      "id": "uk_drivers_license",
+      "name": "UK Driving Licence Number",
+      "group": "govid",
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
+      "patterns": [
+        "\\b[A-Z9]{5}[0-9]{6}[A-Z9]{2}[0-9][A-Z]{2}\\b"
+      ],
+      "validators": [],
+      "keywords": [
+        "driving",
+        "licence",
+        "dvla",
+        "driver"
+      ],
+      "base_confidence": 55,
+      "prefilter": {
+        "needs_digit": true
+      },
+      "notes": "16-char DVLA format."
     }
   ],
   "profiles": [
@@ -802,6 +902,79 @@
                 "op": "detector",
                 "id": "credit_card",
                 "min_validated": 1
+              },
+              {
+                "op": "detector",
+                "id": "us_itin",
+                "min_validated": 1
+              },
+              {
+                "op": "detector",
+                "id": "us_drivers_license"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "profile_id": "UK_PII",
+      "profile_name": "UK Personal Data (PII)",
+      "data_type": "DT_PII_Personal_Data",
+      "verdict_on_match": "BLOCK",
+      "match": {
+        "op": "or",
+        "min": 1,
+        "of": [
+          {
+            "op": "or",
+            "min": 2,
+            "of": [
+              {
+                "op": "detector",
+                "id": "email"
+              },
+              {
+                "op": "detector",
+                "id": "phone"
+              },
+              {
+                "op": "detector",
+                "id": "ip_address"
+              },
+              {
+                "op": "detector",
+                "id": "date_of_birth"
+              },
+              {
+                "op": "detector",
+                "id": "postal_address"
+              },
+              {
+                "op": "detector",
+                "id": "person_name"
+              }
+            ]
+          },
+          {
+            "op": "or",
+            "min": 1,
+            "of": [
+              {
+                "op": "detector",
+                "id": "uk_nino"
+              },
+              {
+                "op": "detector",
+                "id": "uk_passport"
+              },
+              {
+                "op": "detector",
+                "id": "uk_utr"
+              },
+              {
+                "op": "detector",
+                "id": "uk_drivers_license"
               }
             ]
           }
@@ -841,6 +1014,10 @@
               {
                 "op": "detector",
                 "id": "health_insurance"
+              },
+              {
+                "op": "detector",
+                "id": "us_medicare_mbi"
               }
             ]
           },

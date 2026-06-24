@@ -22,6 +22,8 @@ var registry = map[string]func(string) bool{
 	"ein_prefix":   einPrefix,
 	"npi_check":    npi,
 	"dea_check":    dea,
+	"itin_check":   itin,
+	"sin_check":    luhn9,
 }
 
 func digits(s string) []int {
@@ -178,6 +180,41 @@ func npi(s string) bool {
 		alt = !alt
 	}
 	return (10-(sum%10))%10 == d[9]
+}
+
+// itin: US Individual Taxpayer ID — 9 digits, leads with 9, middle (group)
+// digits in IRS ranges 50-65, 70-88, 90-92, 94-99.
+func itin(s string) bool {
+	d := digits(s)
+	if len(d) != 9 || d[0] != 9 {
+		return false
+	}
+	g := d[3]*10 + d[4]
+	switch {
+	case g >= 50 && g <= 65, g >= 70 && g <= 88, g >= 90 && g <= 92, g >= 94 && g <= 99:
+		return true
+	}
+	return false
+}
+
+// luhn9: Luhn over exactly 9 digits (Canada SIN / similar).
+func luhn9(s string) bool {
+	if len(digits(s)) != 9 {
+		return false
+	}
+	d := digits(s)
+	sum, alt := 0, false
+	for i := len(d) - 1; i >= 0; i-- {
+		x := d[i]
+		if alt {
+			if x *= 2; x > 9 {
+				x -= 9
+			}
+		}
+		sum += x
+		alt = !alt
+	}
+	return sum%10 == 0
 }
 
 func dea(s string) bool {

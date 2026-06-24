@@ -9,7 +9,9 @@ verdicts — it never enacts blocking.
 file → detect format (magic bytes)
      → extract text (plaintext direct · OOXML via archive/zip · PDF text layer)
      → prefilter (Aho-Corasick literals + needs-digit, one pass → skip detectors)
-     → scan (27 leaf detectors: regex + dictionary, run across cores, match-capped)
+     → scan (31 leaf detectors: regex + dictionary, run across cores, match-capped)
+       in priority-ordered batches; re-evaluate profiles after each batch and
+       short-circuit once the verdict is decided
      → confidence model (base +validator +keyword +instances)
      → profile evaluation (and/or/min/min_validated over fired detectors)
      → verdict: BLOCK / ESCALATE / ALLOW
@@ -89,6 +91,14 @@ Throughput ≈ **17 MB/s** (was 2.8 MB/s before optimisation):
    run across `NumCPU` goroutines. Per-file latency drops ~Ncore×; CPU is a brief
    burst, not steady-state (the ≤3% CPU budget is amortised over an event stream).
    Race-clean (`go test -race`).
+6. **Early-exit short-circuit** — detectors run in priority-ordered batches
+   (validator-backed/strong first). After each batch we re-evaluate profiles; once
+   a BLOCK-confidence verdict is decided (or matches saturate `max_total_matches`),
+   we stop — remaining detectors can't change the disposition. On saturated input
+   this skips most detectors (allocs dropped ~65×). **Trade-off:** a short-circuited
+   verdict is disposition-correct but may report a *partial* profile list (we
+   stopped once we knew it was bad). Detection-completeness tests run with
+   early-exit disabled; the fast path is covered by `TestEarlyExit`.
 
 ### What we tried and rejected
 - **Single mega-regex (all detectors in one alternation)** — *reverted*. In one

@@ -162,5 +162,11 @@ Date of Birth · US/UK passport · postal/mailing address · national IDs (Franc
 - **D Health:** MRN (⚠️context), US NPI (✅Luhn), US DEA (✅checksum), ICD-10 code, health insurance #
 - **E Secrets:** API/cloud keys, PEM private key, JWT
 
+## Status update (2026-06-24)
+Tier-2 shipped: added `us_itin`, `us_drivers_license`, `us_medicare_mbi`,
+`uk_drivers_license`, and a **UK_PII** profile (which also activates the existing
+UK NINO/passport/UTR detectors). Engine now has **31 detectors across 6 profiles**
+(PCI, Financial, US PII, UK PII, PHI/HIPAA, Secrets).
+
 ## Next step
 The supported list is built. Build the PoC: (1) author RE2 patterns + validators for the leaves into our own rules/profiles definition file; (2) implement the leaf scanner + profile composition engine; (3) synthetic corpus + latency benchmark vs budget (≤50 MB, ≤3% CPU, <100 ms for ≤500 KB).

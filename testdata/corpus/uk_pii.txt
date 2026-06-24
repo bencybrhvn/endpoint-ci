@@ -1,0 +1,3 @@
+UK staff record.
+NINO AB123456C for the employee.
+Contact a.b@example.co.uk.

@@ -21,13 +21,24 @@ const (
 )
 
 type ConfidenceModel struct {
-	ValidatorBoost       int `json:"validator_boost"`
-	KeywordBoost         int `json:"keyword_boost"`
-	InstanceBoost        int `json:"instance_boost"`
-	MaxInstanceBoosts    int `json:"max_instance_boosts"`
-	KeywordWindow        int `json:"keyword_window"`
-	DefaultFireThreshold int `json:"default_fire_threshold"`
-	BlockThreshold       int `json:"block_threshold"`
+	ValidatorBoost       int       `json:"validator_boost"`
+	KeywordBoost         int       `json:"keyword_boost"`
+	InstanceBoost        int       `json:"instance_boost"`
+	MaxInstanceBoosts    int       `json:"max_instance_boosts"`
+	KeywordWindow        int       `json:"keyword_window"`
+	DefaultFireThreshold int       `json:"default_fire_threshold"`
+	BlockThreshold       int       `json:"block_threshold"`
+	EarlyExit            EarlyExit `json:"early_exit"`
+}
+
+// EarlyExit short-circuits the engine once the verdict is already decided:
+// stop scanning further detectors once a BLOCK-confidence profile has fired, or
+// once total matches cross a saturation cap. The disposition can't change after
+// BLOCK, so remaining work is pure cost.
+type EarlyExit struct {
+	Enabled         bool `json:"enabled"`
+	StopOnBlock     bool `json:"stop_on_block"`
+	MaxTotalMatches int  `json:"max_total_matches"`
 }
 
 type Scoring struct {

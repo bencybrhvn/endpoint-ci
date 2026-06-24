@@ -46,6 +46,18 @@ Each entry: **Context** (why) · **Decision** (what) · **Alternatives** · **Co
 
 ---
 
+## 2026-06-24 — Tier-2 detectors + early-exit short-circuit
+
+**Context:** Broaden coverage (US+UK Tier-2) and let the engine stop once a verdict is decided.
+
+**Decision — Tier-2 detectors:** added `us_itin` (validator `itin_check`), `us_drivers_license` (best-effort, keyword-gated), `us_medicare_mbi` (HIPAA health), `uk_drivers_license`. Added a **UK_PII profile** mirroring US_PII — this also activates the already-present `uk_nino`/`uk_passport`/`uk_utr`, which previously fed no profile. Now 31 detectors, 6 profiles, still all LOCAL_CAPABLE.
+
+**Decision — early-exit:** evaluate detectors in priority-ordered batches (validator-backed/strong first); after each batch re-evaluate profiles and stop once a BLOCK-confidence verdict is reached, or once `max_total_matches` is crossed. The disposition can't change after BLOCK, so remaining detectors are pure cost (allocs dropped ~65× on saturated input).
+
+**Consequences:** a short-circuited verdict is **disposition-correct but may list a partial set of profiles** (we stopped once it was clearly bad — the requested behaviour). Detection-completeness tests therefore run with early-exit disabled; the fast path is asserted separately (`TestEarlyExit`). `us_drivers_license`'s generic shape is FP-prone → kept best-effort + keyword-gated + low confidence.
+
+---
+
 ## 2026-06-24 — Multi-pattern matcher to hit the 500KB latency budget
 
 **Context:** Naive per-detector scanning ran ~2.8 MB/s → a 500 KB file took ~185 ms, ~1.8× over the <100 ms target.
