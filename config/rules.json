@@ -148,8 +148,9 @@
     },
     {
       "id": "person_name",
-      "name": "Person Name (title heuristic)",
+      "name": "Person Name (gazetteer + title heuristic)",
       "group": "identity",
+      "kind": "dictionary",
       "data_types": ["DT_PII_Personal_Data"],
       "patterns": [
         "\\b(?:Mr|Mrs|Ms|Miss|Dr|Prof)\\.?\\s+[A-Z][a-z]+(?:\\s+[A-Z][a-z]+){1,2}\\b"
@@ -158,7 +159,24 @@
       "keywords": ["name", "patient", "customer", "employee", "mr", "mrs", "ms", "dr"],
       "base_confidence": 20,
       "best_effort": true,
-      "notes": "Weakest detector — title-prefixed names only. Regex cannot do general names; NER is post-MVP."
+      "dictionary": {
+        "given_names": "config/lexicons/given_names.txt",
+        "surnames": "config/lexicons/surnames.txt",
+        "common_words": "config/lexicons/common_words.txt",
+        "titles": ["mr", "mrs", "ms", "miss", "dr", "prof", "sir", "madam"],
+        "min_capitalized_tokens": 2,
+        "max_span_tokens": 3,
+        "keyword_window": 200,
+        "high_frequency_suppression": "common_words is a tight top-300 high-frequency list. A token in it is NOT counted as name evidence even if present in a name list (e.g. Will/May/Contact). This is the precision lever; real names (john/smith) rank below the cutoff.",
+        "scoring": {
+          "name_evidence_hit": 2,
+          "adjacency_bonus": 3,
+          "title_bonus": 3,
+          "keyword_bonus": 1,
+          "fire_threshold": 5
+        }
+      },
+      "notes": "Hybrid: high-precision title regex (patterns) PLUS dictionary gazetteer scoring (Census surnames + given names, common-word suppression). See docs/name-detection-design.md."
     },
     {
       "id": "url",

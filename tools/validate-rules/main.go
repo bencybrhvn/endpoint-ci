@@ -17,8 +17,14 @@ type Detector struct {
 	ID         string   `json:"id"`
 	Name       string   `json:"name"`
 	Group      string   `json:"group"`
+	Kind       string   `json:"kind"` // "" (regex, default) or "dictionary"
 	Patterns   []string `json:"patterns"`
 	Validators []string `json:"validators"`
+	Dictionary *struct {
+		GivenNames  string `json:"given_names"`
+		Surnames    string `json:"surnames"`
+		CommonWords string `json:"common_words"`
+	} `json:"dictionary"`
 }
 
 type Node struct {
@@ -95,7 +101,30 @@ func main() {
 				fmt.Printf("  [WARN] %s references undeclared validator %q\n", d.ID, v)
 			}
 		}
-		fmt.Printf("  %-18s %-4s  patterns=%d validators=%v\n", d.ID, status, len(d.Patterns), d.Validators)
+		// dictionary detectors: check lexicon files exist and are non-empty
+		if d.Kind == "dictionary" {
+			if d.Dictionary == nil {
+				failCount++
+				status = "FAIL"
+				fmt.Printf("  [FAIL] %s kind=dictionary but no dictionary config\n", d.ID)
+			} else {
+				for _, lex := range []string{d.Dictionary.GivenNames, d.Dictionary.Surnames, d.Dictionary.CommonWords} {
+					if lex == "" {
+						continue
+					}
+					if fi, err := os.Stat(lex); err != nil || fi.Size() == 0 {
+						failCount++
+						status = "FAIL"
+						fmt.Printf("  [FAIL] %s lexicon missing/empty: %s\n", d.ID, lex)
+					}
+				}
+			}
+		}
+		kind := d.Kind
+		if kind == "" {
+			kind = "regex"
+		}
+		fmt.Printf("  %-18s %-4s  kind=%-10s patterns=%d validators=%v\n", d.ID, status, kind, len(d.Patterns), d.Validators)
 	}
 
 	fmt.Println("\n== Profile reference resolution ==")
