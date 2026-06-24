@@ -49,11 +49,17 @@ the full container (docProps are tiny), so labels are caught even under the gate
 ### Sensitivity-label fast-path (spec §4.5)
 
 `internal/label` detects classification labels:
-- **Metadata fast-path** — opens the OOXML container and reads *only* `docProps/
-  custom.xml` + `core.xml` (no body extraction). Property names are matched against
-  marker `metadata_properties` (`MSIP_Label`, `Sensitivity`, `Classification`,
-  `DataClass`…) and values against marker `strings`. A metadata label is
-  machine-written → authoritative → **upgrades the verdict to BLOCK**.
+- **Metadata fast-path** — reads *only* the container's property metadata (no body
+  extraction):
+  - *OOXML* — `docProps/custom.xml` + `core.xml` from the zip.
+  - *PDF* — the **XMP packet** (`<?xpacket…?>`) located in the raw bytes; property
+    names matched with separator/case-insensitive normalisation so `msip:Label`
+    matches the `MSIP_Label` cue. (Compressed XMP streams aren't handled — noted.)
+  Property names match marker `metadata_properties` (`MSIP_Label`, `Sensitivity`,
+  `Classification`, `DataClass`…) and values match marker `strings`. A metadata
+  label is machine-written → authoritative → **upgrades the verdict to BLOCK**.
+  The fast-path runs **even when text extraction fails**, so a labelled-but-
+  unparseable document is still caught (BLOCK) rather than merely escalated.
 - **Body fallback** — scans already-extracted text for *distinctive* markings
   (multi-word or all-caps, case-sensitive: `COMPANY CONFIDENTIAL`, `TOP SECRET`,
   `INTERNAL USE ONLY`…) so the bare word "Confidential" in prose doesn't trip it.
@@ -61,7 +67,8 @@ the full container (docProps are tiny), so labels are caught even under the gate
 
 Markers come from the `label_markers` section of `config/rules.json`. Labels appear
 in the verdict's `labels[]` with their `source` (`metadata`/`body`). Verified:
-`labeled.docx` (MSIP property)→BLOCK, `footer_marked.docx` (body marking)→ESCALATE.
+`labeled.docx` (OOXML MSIP property)→BLOCK, `labeled.pdf` (PDF XMP MSIP label)→
+BLOCK, `footer_marked.docx` (body marking)→ESCALATE.
 
 Verified end to end (`go test`): `hipaa.docx`→PHI/PII, `pci.xlsx`→PCI/Financial,
 `financial.pptx`→Financial, `pii.pdf`→US_PII, `clean.docx`→ALLOW,

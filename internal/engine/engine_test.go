@@ -95,6 +95,7 @@ func TestDocuments(t *testing.T) {
 		{"legacy.doc", Escalate, "", false},        // OLE: extraction fails -> escalate
 		{"labeled.docx", Block, "", true},          // MSIP metadata label -> BLOCK
 		{"footer_marked.docx", Escalate, "", true}, // body marking -> ESCALATE
+		{"labeled.pdf", Block, "", true},           // PDF XMP MSIP label -> BLOCK
 	}
 	for _, c := range cases {
 		t.Run(c.file, func(t *testing.T) {

@@ -100,20 +100,30 @@ func InspectFile(path string, db *rules.DB, cfg extract.Config) (Verdict, error)
 		return Verdict{}, err
 	}
 	res := extract.Extract(data, cfg)
+
+	// Sensitivity-label fast-path (OOXML docProps / PDF XMP) runs on the raw bytes
+	// regardless of text extraction — a labelled-but-unparseable doc must still be
+	// caught. Metadata labels are machine-written → authoritative → BLOCK.
+	meta := label.Metadata(data, res.Type, db.LabelMarkers)
+
+	// Extraction failed (encrypted / corrupt / unsupported): no body to scan.
 	if res.Err != "" {
-		return Verdict{File: path, ScanPath: "local", FileType: res.Type.String(),
-			BytesSeen: len(data), Disposition: Escalate,
-			Note: "extraction failed, escalate: " + res.Err}, nil
+		v := Verdict{File: path, ScanPath: "local", FileType: res.Type.String(),
+			BytesSeen: len(data), Disposition: Escalate, Labels: meta,
+			Note: "extraction failed, escalate: " + res.Err}
+		if len(meta) > 0 {
+			v.Disposition = Block
+			v.Note = "sensitivity label present in metadata (body not extractable)"
+		}
+		return v, nil
 	}
+
 	v := Inspect(path, res.Text, db)
 	v.FileType = res.Type.String()
 	v.Truncated = res.Truncated
 	v.Partial = res.Partial
 
-	// OOXML sensitivity-label fast-path: read only docProps from the raw bytes.
-	// A metadata label is machine-written → authoritative → BLOCK. Runs on the
-	// full container even under the size gate (docProps are tiny).
-	if meta := label.Metadata(data, res.Type, db.LabelMarkers); len(meta) > 0 {
+	if len(meta) > 0 {
 		v.Labels = append(meta, v.Labels...)
 		v.Disposition = upgrade(v.Disposition, Block)
 		if v.Note == "" {

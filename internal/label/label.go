@@ -34,9 +34,12 @@ type Match struct {
 // metaParts are the OOXML property parts read by the fast-path (no body extraction).
 var metaParts = []string{"docProps/custom.xml", "docProps/core.xml"}
 
-// Metadata runs the fast-path over the raw OOXML bytes. Returns nil for non-OOXML.
+// Metadata runs the fast-path over the raw container bytes: OOXML docProps or a
+// PDF XMP packet. Returns nil for other formats.
 func Metadata(data []byte, ft format.Type, markers []rules.LabelMarker) []Match {
 	switch ft {
+	case format.PDF:
+		return xmp(data, markers)
 	case format.DOCX, format.XLSX, format.PPTX:
 	default:
 		return nil
@@ -117,6 +120,80 @@ func scanProps(raw []byte, markers []rules.LabelMarker) []Match {
 		}
 	}
 	return out
+}
+
+// xmp matches a PDF's XMP metadata packet (the analogue of OOXML docProps).
+// MSIP/AIP labels live there as custom properties; classification can appear in
+// dc:/pdf:/custom schema. We locate the (usually uncompressed) xpacket and match
+// property names (normalised, so "msip:Label" matches the "MSIP_Label" cue) and
+// label-string values. Compressed metadata streams are not handled (documented).
+func xmp(data []byte, markers []rules.LabelMarker) []Match {
+	pkt := extractXMP(data)
+	if pkt == "" {
+		return nil
+	}
+	low := strings.ToLower(pkt)
+	norm := normAlnum(pkt)
+	var out []Match
+	seen := map[string]bool{}
+	add := func(m Match) {
+		k := m.MarkerID + "|" + m.Property + "|" + m.Label
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, m)
+		}
+	}
+	for _, mk := range markers {
+		for _, mp := range mk.MetadataProperties {
+			if strings.Contains(norm, normAlnum(mp)) {
+				add(Match{MarkerID: mk.ID, Label: mp, Source: SourceMetadata, Property: mp})
+			}
+		}
+		for _, s := range mk.Strings {
+			if strings.Contains(low, strings.ToLower(s)) {
+				add(Match{MarkerID: mk.ID, Label: s, Source: SourceMetadata})
+			}
+		}
+	}
+	return out
+}
+
+// extractXMP returns the XMP packet text from raw PDF bytes, or "".
+func extractXMP(data []byte) string {
+	start := bytes.Index(data, []byte("<?xpacket begin"))
+	if start < 0 {
+		start = bytes.Index(data, []byte("<x:xmpmeta"))
+	}
+	if start < 0 {
+		return ""
+	}
+	if e := bytes.Index(data[start:], []byte("<?xpacket end")); e >= 0 {
+		tail := start + e
+		if pe := bytes.IndexByte(data[tail:], '>'); pe >= 0 {
+			return string(data[start : tail+pe+1])
+		}
+		return string(data[start:tail])
+	}
+	if m := bytes.Index(data[start:], []byte("</x:xmpmeta>")); m >= 0 {
+		return string(data[start : start+m+len("</x:xmpmeta>")])
+	}
+	end := start + (1 << 20)
+	if end > len(data) {
+		end = len(data)
+	}
+	return string(data[start:end])
+}
+
+// normAlnum lowercases and drops non-alphanumerics, so separators/case differ-
+// ences between cues ("MSIP_Label") and XMP element names ("msip:Label") match.
+func normAlnum(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // Body scans extracted text for label strings (lower-confidence fallback). To

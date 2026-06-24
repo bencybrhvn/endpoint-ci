@@ -66,7 +66,9 @@ Each entry: **Context** (why) · **Decision** (what) · **Alternatives** · **Co
 
 Verdict gains `labels[]` (with `source`). Disposition uses a severity upgrade (BLOCK>ESCALATE>ALLOW) so labels combine cleanly with profile verdicts.
 
-**Consequences:** a labelled-but-otherwise-clean document is now caught (metadata→BLOCK) with negligible cost (no body scan needed). Body markings are deliberately conservative to limit FPs. PDF XMP label path is a future addition.
+**Consequences:** a labelled-but-otherwise-clean document is now caught (metadata→BLOCK) with negligible cost (no body scan needed). Body markings are deliberately conservative to limit FPs.
+
+**2026-06-24 update — PDF XMP:** extended the metadata fast-path to PDF. We locate the XMP packet (`<?xpacket…?>`) in the raw bytes and match property names (with separator/case normalisation, so `msip:Label` matches the `MSIP_Label` cue) + label-string values. The fast-path now runs in `InspectFile` even when text extraction *fails*, so a labelled-but-unparseable PDF still BLOCKs (was previously a plain ESCALATE). Limitation: compressed XMP metadata streams aren't decoded (MSIP/AIP keep XMP uncompressed in practice).
 
 ---
 
