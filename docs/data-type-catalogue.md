@@ -1,21 +1,80 @@
-# Supported Data-Type Catalogue (MVP scoping)
+# Supported Data-Type Catalogue & Detection Model (MVP scoping)
 
-> Status: **MVP scope LOCKED (2026-06-24).** MVP v0 = **Tier 1** (6 universal, validator-backed types). Tier 2 (US + UK identifiers) is the agreed next expansion; Tier 3 (technical secrets) after that. The three excluded classes below are confirmed out of MVP.
+> Status: **two-layer model adopted (2026-06-24).** Breadth (PII, HIPAA, PCI, Financial…) comes not from more leaf patterns but from a **profile layer** that composes leaf detectors — mirroring how the source policies are built. Leaf catalogue expanded accordingly. Scope of profiles + leaf set being finalised (see "Decisions").
 
-## LOCKED MVP v0 — supported data types
+## The detection model: detectors + profiles
 
-We author the RE2 pattern + validator ourselves for each of these six:
+We cannot pattern-match "PII" or "HIPAA" directly — in the source policies these are **boolean compositions of atomic detectors** (`Or min="2"`, `minCount`, `minUniqueCount`, `minConfidence`). So the engine has two layers:
 
-| # | Data type | Validator | Notes |
-|---|---|---|---|
-| 1 | Credit / debit card number | ✅ Luhn | 13–19 digit major networks |
-| 2 | IBAN | ✅ mod-97 | country code + length table |
-| 3 | ABA routing number | ✅ checksum | 9-digit, weighted mod-10 |
-| 4 | SWIFT / BIC code | format | 8 or 11 alnum |
-| 5 | Email address | format | pragmatic RFC subset |
-| 6 | IP address (v4 / v6) | format | exclude trivial FPs (e.g. version strings) |
+- **Layer 1 — Detectors (leaf data types):** a single recognisable thing we author a regex (+ optional validator) for. E.g. credit card, SSN, email, ICD-10 code.
+- **Layer 2 — Profiles (named concepts):** boolean rollups *over* detector hits that emit a recognisable outcome. E.g. PHI/HIPAA, US PII, PCI, Financial, Secrets. We reconstruct the composition logic from the XML; we supply the leaves.
 
-**Agreed next phases (not in v0):** Tier 2 = US + UK + global geo focus (US SSN, EIN, DEA, NPI; UK NINO; NA phone). Tier 3 = technical secrets (API/cloud keys, PEM private keys, JWTs).
+This is what delivers breadth: a modest set of well-built leaf detectors lights up many high-value profiles.
+
+## Layer 1 — Leaf detector catalogue (we author each pattern + validator)
+
+✅ = deterministic validator (very low FP). ⚠️ = context-heavy / higher FP, best-effort.
+
+### Group A — Financial (→ profiles: PCI, Financial)
+| Detector | Validator | Notes |
+|---|---|---|
+| Credit / debit card | ✅ Luhn | 13–19 digit major networks |
+| IBAN | ✅ mod-97 | country code + length table |
+| ABA routing number | ✅ checksum | 9-digit weighted mod-10 |
+| SWIFT / BIC | format | 8 or 11 alnum |
+| Bank account (generic) | ⚠️ none | high FP — needs keyword context |
+
+### Group B — Core identity / PII (→ profiles: PII, HIPAA)
+| Detector | Validator | Notes |
+|---|---|---|
+| Email address | format | pragmatic RFC subset |
+| IP address (v4/v6) | format | also a HIPAA identifier |
+| Phone number (NA + intl) | format | |
+| Date of birth / date | ⚠️ format | context word ("DOB", "born") to cut FP |
+| Postal / mailing address | ⚠️ heuristic | structure + street/zip tokens |
+| Person name | ⚠️ dictionary | hard for regex — dictionary/NER, best-effort or defer |
+| URL | format | HIPAA identifier |
+| Vehicle ID (VIN) / plate | ✅ VIN checksum | HIPAA identifier |
+
+### Group C — Government / national IDs (US + UK focus)
+| Detector | Validator | Notes |
+|---|---|---|
+| US SSN / Taxpayer ID | range rules | needs range-guard rewrite (no lookahead in RE2) |
+| US EIN | prefix table | |
+| US passport | format | |
+| US driver's licence | ⚠️ per-state | fragmented; best-effort subset |
+| UK NINO | format | |
+| UK passport / UTR | format | |
+
+### Group D — Health / PHI (→ profile: HIPAA)
+| Detector | Validator | Notes |
+|---|---|---|
+| Medical record number (MRN) | ⚠️ context | format + keyword |
+| US NPI | ✅ Luhn-based | |
+| US DEA number | ✅ checksum | |
+| ICD-10 diagnosis code | format | `[A-TV-Z]\d{2}(\.\d{1,4})?` |
+| Health insurance number (generic) | format | |
+
+### Group E — Technical secrets (→ profile: Secrets)
+| Detector | Validator | Notes |
+|---|---|---|
+| API / cloud keys (AWS etc.) | prefix + entropy | high security value |
+| Private keys (PEM) | marker | `-----BEGIN … PRIVATE KEY-----` |
+| JWT / bearer token | structure | three base64url segments |
+
+## Layer 2 — Profiles (named concepts, composed from detectors)
+
+Reconstructed from the XML composition semantics; thresholds tunable.
+
+| Profile | Composition (illustrative) | Source bucket |
+|---|---|---|
+| **PCI** | credit card (Luhn-valid) ≥1 | Financial_PCI |
+| **Financial** | card OR IBAN OR ABA OR SWIFT OR bank account | Financial_PCI |
+| **PHI / HIPAA** | (≥1 of {MRN, NPI, DEA, ICD-10, health-insurance}) AND (≥2 of {name, DOB, SSN, address, phone, email}) | PHI_Medical |
+| **US PII** | (≥2 distinct PII detectors) OR (≥1 of {SSN, passport, card}) | PII_Personal_Data |
+| **Secrets** | any Group E detector ≥1 | Technical_Keys_Secrets |
+
+> The XML defines these per-country/per-regulation; for MVP we implement a small, representative set of profiles and a representative leaf set, then expand.
 
 ## What the source policies actually give us
 
@@ -88,11 +147,20 @@ Date of Birth · US/UK passport · postal/mailing address · national IDs (Franc
 4. **High value / prevalence** — common in real egress, matters for DLP.
 5. **Low false-positive risk** at endpoint scale (≤3% CPU, runs constantly).
 
-## Decisions (resolved 2026-06-24)
-- [x] Exclude all three classes (country bundles, compliance frameworks, keyword concepts) from MVP.
-- [x] MVP set = **Tier 1 only** (6 universal validator-backed types).
-- [x] Geographic focus for expansion = **US + UK + global** (drives Tier 2).
-- [x] Debatable candidates (DOB, passport, address, national IDs, generic bank account, magstripe, health insurance) — **deferred**, none in v0.
+## Decisions — LOCKED (2026-06-24)
+- [x] Exclude detecting bundles/frameworks/keyword-concepts as monolithic patterns.
+- [x] Adopt **two-layer model**: leaf detectors + composed profiles → this is how we get PII/HIPAA breadth.
+- [x] Geographic focus = **US + UK + global**.
+- [x] **MVP profiles = PCI, Financial, US PII, PHI/HIPAA** (Secrets profile = near-free bonus, leaves are built).
+- [x] **Leaf set = broad (Groups A–E, ~25 detectors)** — enough to light up all four profiles.
+- [x] **Context-heavy leaves (DOB, address, name) = best-effort now** with required context keywords + low confidence; name is weakest (minimal dictionary/title heuristic).
+
+### Locked MVP leaf detectors
+- **A Financial:** credit card (✅Luhn), IBAN (✅mod-97), ABA (✅checksum), SWIFT/BIC, bank account (⚠️context)
+- **B Identity/PII:** email, IP v4/v6, phone (NA+intl), DOB (⚠️), postal address (⚠️), person name (⚠️), URL, VIN (✅checksum)
+- **C Gov IDs (US+UK):** US SSN, US EIN, US passport, UK NINO, UK passport/UTR
+- **D Health:** MRN (⚠️context), US NPI (✅Luhn), US DEA (✅checksum), ICD-10 code, health insurance #
+- **E Secrets:** API/cloud keys, PEM private key, JWT
 
 ## Next step
-The list is locked. Build proceeds against exactly these six types: author RE2 patterns + validators, wire the inspection pipeline, and benchmark against the resource budget (≤50 MB, ≤3% CPU, <100 ms for ≤500 KB).
+The supported list is built. Build the PoC: (1) author RE2 patterns + validators for the leaves into our own rules/profiles definition file; (2) implement the leaf scanner + profile composition engine; (3) synthetic corpus + latency benchmark vs budget (≤50 MB, ≤3% CPU, <100 ms for ≤500 KB).
