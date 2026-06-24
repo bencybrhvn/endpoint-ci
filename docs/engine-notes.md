@@ -31,6 +31,23 @@ file → detect format (magic bytes)
     crashes the caller (spec §10 fail-gracefully).
 - Extracted text is capped (default 5 MB) and flagged `truncated`.
 
+### Sensitivity-label fast-path (spec §4.5)
+
+`internal/label` detects classification labels:
+- **Metadata fast-path** — opens the OOXML container and reads *only* `docProps/
+  custom.xml` + `core.xml` (no body extraction). Property names are matched against
+  marker `metadata_properties` (`MSIP_Label`, `Sensitivity`, `Classification`,
+  `DataClass`…) and values against marker `strings`. A metadata label is
+  machine-written → authoritative → **upgrades the verdict to BLOCK**.
+- **Body fallback** — scans already-extracted text for *distinctive* markings
+  (multi-word or all-caps, case-sensitive: `COMPANY CONFIDENTIAL`, `TOP SECRET`,
+  `INTERNAL USE ONLY`…) so the bare word "Confidential" in prose doesn't trip it.
+  A body marking → at least **ESCALATE**.
+
+Markers come from the `label_markers` section of `config/rules.json`. Labels appear
+in the verdict's `labels[]` with their `source` (`metadata`/`body`). Verified:
+`labeled.docx` (MSIP property)→BLOCK, `footer_marked.docx` (body marking)→ESCALATE.
+
 Verified end to end (`go test`): `hipaa.docx`→PHI/PII, `pci.xlsx`→PCI/Financial,
 `financial.pptx`→Financial, `pii.pdf`→US_PII, `clean.docx`→ALLOW,
 `legacy.doc` (OLE)→ESCALATE.

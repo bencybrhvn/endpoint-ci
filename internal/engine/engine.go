@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cyberhaven/endpoint-ci/internal/extract"
+	"github.com/cyberhaven/endpoint-ci/internal/label"
 	"github.com/cyberhaven/endpoint-ci/internal/profile"
 	"github.com/cyberhaven/endpoint-ci/internal/rules"
 	"github.com/cyberhaven/endpoint-ci/internal/scan"
@@ -31,7 +32,26 @@ type Verdict struct {
 	Note         string            `json:"note,omitempty"`
 	ScanMicros   int64             `json:"scan_duration_us"`
 	Profiles     []profile.Match   `json:"profiles"`
+	Labels       []label.Match     `json:"labels,omitempty"`
 	Detectors    []DetectorFinding `json:"detectors"`
+}
+
+// severity orders dispositions so labels can upgrade the verdict (BLOCK>ESCALATE>ALLOW).
+func severity(d string) int {
+	switch d {
+	case Block:
+		return 2
+	case Escalate:
+		return 1
+	}
+	return 0
+}
+
+func upgrade(cur, want string) string {
+	if severity(want) > severity(cur) {
+		return want
+	}
+	return cur
 }
 
 type DetectorFinding struct {
@@ -87,6 +107,16 @@ func InspectFile(path string, db *rules.DB, cfg extract.Config) (Verdict, error)
 	v := Inspect(path, res.Text, db)
 	v.FileType = res.Type.String()
 	v.Truncated = res.Truncated
+
+	// OOXML sensitivity-label fast-path: read only docProps from the raw bytes.
+	// A metadata label is machine-written → authoritative → BLOCK.
+	if meta := label.Metadata(data, res.Type, db.LabelMarkers); len(meta) > 0 {
+		v.Labels = append(meta, v.Labels...)
+		v.Disposition = upgrade(v.Disposition, Block)
+		if v.Note == "" {
+			v.Note = "sensitivity label present in document metadata"
+		}
+	}
 	return v, nil
 }
 
@@ -170,6 +200,12 @@ func Inspect(file, text string, db *rules.DB) Verdict {
 				break
 			}
 		}
+	}
+
+	// Body-text sensitivity labels (distinctive markings) → at least ESCALATE.
+	if labels := label.Body(text, db.LabelMarkers); len(labels) > 0 {
+		v.Labels = append(v.Labels, labels...)
+		v.Disposition = upgrade(v.Disposition, Escalate)
 	}
 	return v
 }

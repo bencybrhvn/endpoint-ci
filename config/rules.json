@@ -1080,5 +1080,45 @@
         ]
       }
     }
+  ],
+  "label_markers": [
+    {
+      "id": "label_msip",
+      "name": "Microsoft Sensitivity Labels (MIP/AIP)",
+      "strings": [
+        "Highly Confidential",
+        "Confidential",
+        "General",
+        "Public",
+        "Internal",
+        "Restricted",
+        "Secret",
+        "Top Secret"
+      ],
+      "metadata_properties": [
+        "MSIP_Label",
+        "Sensitivity",
+        "ClassificationContentMarking",
+        "Classification"
+      ]
+    },
+    {
+      "id": "label_custom",
+      "name": "Custom Org Classification Markers",
+      "strings": [
+        "INTERNAL USE ONLY",
+        "FOR INTERNAL USE",
+        "COMPANY CONFIDENTIAL",
+        "PROPRIETARY",
+        "RESTRICTED",
+        "TOP SECRET",
+        "NOT FOR DISTRIBUTION"
+      ],
+      "metadata_properties": [
+        "DataClass",
+        "DocSensitivity",
+        "ContentClassification"
+      ]
+    }
   ]
 }

@@ -46,6 +46,20 @@ Each entry: **Context** (why) · **Decision** (what) · **Alternatives** · **Co
 
 ---
 
+## 2026-06-24 — OOXML sensitivity-label fast-path
+
+**Context:** Sensitivity labels (MS MIP/AIP, custom org markings) are a high-value, cheap signal that doesn't need full content inspection (spec §4.5).
+
+**Decision:** `internal/label` with two paths, driven by a `label_markers` section in rules.json:
+- **Metadata fast-path** — open the OOXML zip and read *only* `docProps/custom.xml`+`core.xml`; match property names against `metadata_properties` (MSIP_Label/Sensitivity/Classification/DataClass) and values against label strings. Runs on raw bytes in `InspectFile` before/around extraction. Machine-written ⇒ authoritative ⇒ upgrades verdict to **BLOCK**.
+- **Body fallback** — scan extracted text for *distinctive* markings only (multi-word or all-caps, case-sensitive) so "Confidential" in prose doesn't trip it ⇒ at least **ESCALATE**.
+
+Verdict gains `labels[]` (with `source`). Disposition uses a severity upgrade (BLOCK>ESCALATE>ALLOW) so labels combine cleanly with profile verdicts.
+
+**Consequences:** a labelled-but-otherwise-clean document is now caught (metadata→BLOCK) with negligible cost (no body scan needed). Body markings are deliberately conservative to limit FPs. PDF XMP label path is a future addition.
+
+---
+
 ## 2026-06-24 — Tier-2 detectors + early-exit short-circuit
 
 **Context:** Broaden coverage (US+UK Tier-2) and let the engine stop once a verdict is decided.

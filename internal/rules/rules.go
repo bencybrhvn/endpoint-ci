@@ -110,11 +110,21 @@ type Profile struct {
 	Match          Node   `json:"match"`
 }
 
+// LabelMarker matches sensitivity/classification labels (spec §4.5/§5):
+// metadata property names and visible label strings.
+type LabelMarker struct {
+	ID                 string   `json:"id"`
+	Name               string   `json:"name"`
+	Strings            []string `json:"strings"`
+	MetadataProperties []string `json:"metadata_properties"`
+}
+
 type DB struct {
 	SchemaVersion string          `json:"schema_version"`
 	Conf          ConfidenceModel `json:"confidence_model"`
 	Detectors     []*Detector     `json:"detectors"`
 	Profiles      []Profile       `json:"profiles"`
+	LabelMarkers  []LabelMarker   `json:"label_markers"`
 
 	// LitMatcher is the single Aho-Corasick automaton over every detector's
 	// literal cues — one pass tells the scanner which detectors can match.

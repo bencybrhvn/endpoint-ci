@@ -49,6 +49,7 @@ internal/
   format/         magic-byte format detection
   extract/        text extraction (plaintext, OOXML via zip, PDF text layer)
   prefilter/      Aho-Corasick multi-literal matcher (detector gating)
+  label/          OOXML sensitivity-label detection (metadata fast-path + body)
   scan/           leaf detector scan (parallel, match-capped) + confidence model
   validators/     luhn, iban (mod-97), aba, vin, ssn, ein, npi, dea
   profile/        profile composition evaluator

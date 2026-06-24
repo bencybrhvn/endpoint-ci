@@ -82,16 +82,19 @@ func TestDocuments(t *testing.T) {
 	db := loadDB(t)
 	db.Conf.EarlyExit.Enabled = false // verify full profile set
 	cases := []struct {
-		file    string
-		verdict string
-		profile string // one required profile ("" = none)
+		file      string
+		verdict   string
+		profile   string // one required profile ("" = none)
+		wantLabel bool   // expect >=1 sensitivity label
 	}{
-		{"hipaa.docx", Block, "PHI_HIPAA"},
-		{"clean.docx", Allow, ""},
-		{"pci.xlsx", Block, "PCI"},
-		{"financial.pptx", Block, "FINANCIAL"},
-		{"pii.pdf", Block, "US_PII"},
-		{"legacy.doc", Escalate, ""}, // OLE: extraction fails -> escalate
+		{"hipaa.docx", Block, "PHI_HIPAA", false},
+		{"clean.docx", Allow, "", false},
+		{"pci.xlsx", Block, "PCI", false},
+		{"financial.pptx", Block, "FINANCIAL", false},
+		{"pii.pdf", Block, "US_PII", false},
+		{"legacy.doc", Escalate, "", false},        // OLE: extraction fails -> escalate
+		{"labeled.docx", Block, "", true},          // MSIP metadata label -> BLOCK
+		{"footer_marked.docx", Escalate, "", true}, // body marking -> ESCALATE
 	}
 	for _, c := range cases {
 		t.Run(c.file, func(t *testing.T) {
@@ -116,6 +119,9 @@ func TestDocuments(t *testing.T) {
 				if !found {
 					t.Errorf("%s: missing profile %s", c.file, c.profile)
 				}
+			}
+			if c.wantLabel && len(v.Labels) == 0 {
+				t.Errorf("%s: expected a sensitivity label", c.file)
 			}
 		})
 	}
