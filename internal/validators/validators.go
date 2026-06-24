@@ -3,7 +3,10 @@
 // NPI, DEA). Names match the "validators" keys in config/rules.json.
 package validators
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // Run reports whether s passes the named validator. Unknown validator => false.
 func Run(name, s string) bool {
@@ -24,6 +27,10 @@ var registry = map[string]func(string) bool{
 	"dea_check":    dea,
 	"itin_check":   itin,
 	"sin_check":    luhn9,
+	"nir_check":    nirFR,
+	"de_tax_check": deTaxID,
+	"es_dni_check": esDNI,
+	"bsn_check":    nlBSN,
 }
 
 func digits(s string) []int {
@@ -215,6 +222,83 @@ func luhn9(s string) bool {
 		alt = !alt
 	}
 	return sum%10 == 0
+}
+
+// nirFR: France INSEE / social-security number (NIR). 15 digits; the last 2 are
+// a key = 97 - (first 13 digits mod 97).
+func nirFR(s string) bool {
+	d := digits(s)
+	if len(d) != 15 {
+		return false
+	}
+	var n int64
+	for i := 0; i < 13; i++ {
+		n = n*10 + int64(d[i])
+	}
+	key := 97 - (n % 97)
+	return int64(d[13]*10+d[14]) == key
+}
+
+// deTaxID: German tax identification number (IdNr), 11 digits, ISO 7064 MOD 11,10.
+func deTaxID(s string) bool {
+	d := digits(s)
+	if len(d) != 11 {
+		return false
+	}
+	product := 10
+	for i := 0; i < 10; i++ {
+		sum := (d[i] + product) % 10
+		if sum == 0 {
+			sum = 10
+		}
+		product = (sum * 2) % 11
+	}
+	check := 11 - product
+	if check == 10 {
+		check = 0
+	}
+	return check == d[10]
+}
+
+// esDNI: Spanish DNI — 8 digits + a letter computed as table[n mod 23].
+func esDNI(s string) bool {
+	s = strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(s), "-", ""))
+	if len(s) != 9 {
+		return false
+	}
+	for i := 0; i < 8; i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	if s[8] < 'A' || s[8] > 'Z' {
+		return false
+	}
+	n, _ := strconv.Atoi(s[:8])
+	const table = "TRWAGMYFPDXBNJZSQVHLCKE"
+	return table[n%23] == s[8]
+}
+
+// nlBSN: Dutch BSN — 9 digits passing the weighted 11-test.
+func nlBSN(s string) bool {
+	d := digits(s)
+	if len(d) != 9 {
+		return false
+	}
+	allZero := true
+	sum := 0
+	w := []int{9, 8, 7, 6, 5, 4, 3, 2}
+	for i := 0; i < 8; i++ {
+		sum += d[i] * w[i]
+		if d[i] != 0 {
+			allZero = false
+		}
+	}
+	sum += d[8] * -1
+	if d[8] != 0 {
+		allZero = false
+	}
+	return !allZero && sum%11 == 0
 }
 
 func dea(s string) bool {

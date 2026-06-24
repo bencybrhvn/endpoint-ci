@@ -1,8 +1,8 @@
 Rule compilation report
-  Detectors:        31
-  LOCAL_CAPABLE:    31
+  Detectors:        37
+  LOCAL_CAPABLE:    37
   CLOUD_ONLY:       0
-  Profiles:         6
+  Profiles:         8
 
   credit_card      LOCAL_CAPABLE  regex    patterns=1 validators=[luhn_check]
   iban             LOCAL_CAPABLE  regex    patterns=1 validators=[iban_mod97]
@@ -35,3 +35,9 @@ Rule compilation report
   us_drivers_license LOCAL_CAPABLE  regex    patterns=1 validators=[]
   us_medicare_mbi  LOCAL_CAPABLE  regex    patterns=1 validators=[]
   uk_drivers_license LOCAL_CAPABLE  regex    patterns=1 validators=[]
+  canada_sin       LOCAL_CAPABLE  regex    patterns=1 validators=[sin_check]
+  fr_nir           LOCAL_CAPABLE  regex    patterns=1 validators=[nir_check]
+  de_tax_id        LOCAL_CAPABLE  regex    patterns=1 validators=[de_tax_check]
+  italy_codice_fiscale LOCAL_CAPABLE  regex    patterns=1 validators=[]
+  es_dni           LOCAL_CAPABLE  regex    patterns=1 validators=[es_dni_check]
+  nl_bsn           LOCAL_CAPABLE  regex    patterns=1 validators=[bsn_check]

@@ -26,7 +26,11 @@
     "npi_check": "US NPI Luhn over '80840' + 9 digits",
     "dea_check": "US DEA: (d1+d3+d5) + 2*(d2+d4+d6) mod 10 == d7",
     "itin_check": "US ITIN: leads with 9, group digits in 50-65/70-88/90-92/94-99",
-    "sin_check": "Canada SIN / 9-digit Luhn"
+    "sin_check": "Canada SIN / 9-digit Luhn",
+    "nir_check": "France NIR: 15 digits, key = 97 - (first13 mod 97)",
+    "de_tax_check": "Germany tax IdNr: 11 digits, ISO 7064 MOD 11,10",
+    "es_dni_check": "Spain DNI: 8 digits + letter (table[n mod 23])",
+    "bsn_check": "Netherlands BSN: 9-digit weighted 11-test"
   },
   "detectors": [
     {
@@ -797,6 +801,147 @@
         "needs_digit": true
       },
       "notes": "16-char DVLA format."
+    },
+    {
+      "id": "canada_sin",
+      "name": "Canada Social Insurance Number (SIN)",
+      "group": "govid",
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
+      "patterns": [
+        "\\b\\d{3}[ -]?\\d{3}[ -]?\\d{3}\\b"
+      ],
+      "validators": [
+        "sin_check"
+      ],
+      "keywords": [
+        "sin",
+        "social insurance",
+        "sin number"
+      ],
+      "base_confidence": 50,
+      "prefilter": {
+        "needs_digit": true
+      }
+    },
+    {
+      "id": "fr_nir",
+      "name": "France Social Security Number (NIR/INSEE)",
+      "group": "govid",
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
+      "patterns": [
+        "\\b[12]\\d{14}\\b"
+      ],
+      "validators": [
+        "nir_check"
+      ],
+      "keywords": [
+        "nir",
+        "insee",
+        "securite sociale",
+        "social security",
+        "numero de securite"
+      ],
+      "base_confidence": 50,
+      "prefilter": {
+        "needs_digit": true
+      }
+    },
+    {
+      "id": "de_tax_id",
+      "name": "Germany Tax Identification Number (IdNr)",
+      "group": "govid",
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
+      "patterns": [
+        "\\b\\d{11}\\b"
+      ],
+      "validators": [
+        "de_tax_check"
+      ],
+      "keywords": [
+        "steuer",
+        "steuer-id",
+        "idnr",
+        "steueridentifikationsnummer",
+        "tax id"
+      ],
+      "base_confidence": 40,
+      "best_effort": true,
+      "prefilter": {
+        "needs_digit": true
+      }
+    },
+    {
+      "id": "italy_codice_fiscale",
+      "name": "Italy Codice Fiscale",
+      "group": "govid",
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
+      "patterns": [
+        "\\b[A-Z]{6}\\d{2}[A-EHLMPRST]\\d{2}[A-Z]\\d{3}[A-Z]\\b"
+      ],
+      "validators": [],
+      "keywords": [
+        "codice fiscale",
+        "cf",
+        "fiscal code"
+      ],
+      "base_confidence": 55,
+      "prefilter": {
+        "needs_digit": true
+      }
+    },
+    {
+      "id": "es_dni",
+      "name": "Spain DNI / NIF",
+      "group": "govid",
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
+      "patterns": [
+        "\\b\\d{8}[A-Za-z]\\b"
+      ],
+      "validators": [
+        "es_dni_check"
+      ],
+      "keywords": [
+        "dni",
+        "nif",
+        "documento nacional"
+      ],
+      "base_confidence": 50,
+      "prefilter": {
+        "needs_digit": true
+      }
+    },
+    {
+      "id": "nl_bsn",
+      "name": "Netherlands BSN",
+      "group": "govid",
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
+      "patterns": [
+        "\\b\\d{9}\\b"
+      ],
+      "validators": [
+        "bsn_check"
+      ],
+      "keywords": [
+        "bsn",
+        "burgerservicenummer"
+      ],
+      "base_confidence": 40,
+      "best_effort": true,
+      "prefilter": {
+        "needs_digit": true
+      }
     }
   ],
   "profiles": [
@@ -975,6 +1120,131 @@
               {
                 "op": "detector",
                 "id": "uk_drivers_license"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "profile_id": "CA_PII",
+      "profile_name": "Canada Personal Data (PII)",
+      "data_type": "DT_PII_Personal_Data",
+      "verdict_on_match": "BLOCK",
+      "match": {
+        "op": "or",
+        "min": 1,
+        "of": [
+          {
+            "op": "or",
+            "min": 2,
+            "of": [
+              {
+                "op": "detector",
+                "id": "email"
+              },
+              {
+                "op": "detector",
+                "id": "phone"
+              },
+              {
+                "op": "detector",
+                "id": "ip_address"
+              },
+              {
+                "op": "detector",
+                "id": "date_of_birth"
+              },
+              {
+                "op": "detector",
+                "id": "postal_address"
+              },
+              {
+                "op": "detector",
+                "id": "person_name"
+              }
+            ]
+          },
+          {
+            "op": "or",
+            "min": 1,
+            "of": [
+              {
+                "op": "detector",
+                "id": "canada_sin",
+                "min_validated": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "profile_id": "EU_PII",
+      "profile_name": "EU Personal Data (PII)",
+      "data_type": "DT_PII_Personal_Data",
+      "verdict_on_match": "BLOCK",
+      "match": {
+        "op": "or",
+        "min": 1,
+        "of": [
+          {
+            "op": "or",
+            "min": 2,
+            "of": [
+              {
+                "op": "detector",
+                "id": "email"
+              },
+              {
+                "op": "detector",
+                "id": "phone"
+              },
+              {
+                "op": "detector",
+                "id": "ip_address"
+              },
+              {
+                "op": "detector",
+                "id": "date_of_birth"
+              },
+              {
+                "op": "detector",
+                "id": "postal_address"
+              },
+              {
+                "op": "detector",
+                "id": "person_name"
+              }
+            ]
+          },
+          {
+            "op": "or",
+            "min": 1,
+            "of": [
+              {
+                "op": "detector",
+                "id": "fr_nir",
+                "min_validated": 1
+              },
+              {
+                "op": "detector",
+                "id": "de_tax_id",
+                "min_validated": 1
+              },
+              {
+                "op": "detector",
+                "id": "italy_codice_fiscale"
+              },
+              {
+                "op": "detector",
+                "id": "es_dni",
+                "min_validated": 1
+              },
+              {
+                "op": "detector",
+                "id": "nl_bsn",
+                "min_validated": 1
               }
             ]
           }

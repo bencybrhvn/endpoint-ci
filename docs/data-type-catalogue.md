@@ -165,8 +165,14 @@ Date of Birth · US/UK passport · postal/mailing address · national IDs (Franc
 ## Status update (2026-06-24)
 Tier-2 shipped: added `us_itin`, `us_drivers_license`, `us_medicare_mbi`,
 `uk_drivers_license`, and a **UK_PII** profile (which also activates the existing
-UK NINO/passport/UTR detectors). Engine now has **31 detectors across 6 profiles**
-(PCI, Financial, US PII, UK PII, PHI/HIPAA, Secrets).
+UK NINO/passport/UTR detectors).
+
+Canada + EU national IDs shipped: `canada_sin` (Luhn), `fr_nir` (mod-97),
+`de_tax_id` (ISO 7064 MOD 11,10), `italy_codice_fiscale`, `es_dni` (mod-23),
+`nl_bsn` (11-test), with new **CA_PII** and **EU_PII** profiles.
+
+Engine now has **37 detectors across 8 profiles** (PCI, Financial, US PII, UK PII,
+CA PII, EU PII, PHI/HIPAA, Secrets).
 
 ## Next step
 The supported list is built. Build the PoC: (1) author RE2 patterns + validators for the leaves into our own rules/profiles definition file; (2) implement the leaf scanner + profile composition engine; (3) synthetic corpus + latency benchmark vs budget (≤50 MB, ≤3% CPU, <100 ms for ≤500 KB).

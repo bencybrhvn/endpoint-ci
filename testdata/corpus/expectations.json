@@ -65,5 +65,17 @@
     "profiles": [
       "UK_PII"
     ]
+  },
+  "canada.txt": {
+    "verdict": "BLOCK",
+    "profiles": [
+      "CA_PII"
+    ]
+  },
+  "eu_spain.txt": {
+    "verdict": "BLOCK",
+    "profiles": [
+      "EU_PII"
+    ]
   }
 }
