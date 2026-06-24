@@ -1,0 +1,35 @@
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+*.key
+
+# Go
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+coverage.out
+__debug_bin*
+
+# Session tracking (local working notes)
+CURRENT_WORK.md
+
+# Local scratch / real sample data — keep synthetic-only data in testdata/
+/scratch/
+/samples-private/
