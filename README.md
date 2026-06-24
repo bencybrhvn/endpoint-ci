@@ -125,6 +125,81 @@ For pprof: `./ch-inspect --scan <dir> --cpuprofile cpu.out` then `go tool pprof 
 
 ---
 
+## Worked examples
+
+All three verdict types, run against bundled samples (`./ch-inspect --file …`).
+
+**BLOCK** — `testdata/corpus/pci_card.txt` (two valid Luhn cards with payment context):
+
+```jsonc
+{
+  "file": "testdata/corpus/pci_card.txt",
+  "verdict": "BLOCK",
+  "file_type": "plaintext",
+  "short_circuited": true,                 // stopped once BLOCK was certain
+  "scan_duration_us": 100,
+  "profiles": [
+    { "profile_id": "PCI",       "confidence": 80 },
+    { "profile_id": "FINANCIAL", "confidence": 80 },
+    { "profile_id": "US_PII",    "confidence": 80 }   // a card is also strong PII
+  ],
+  "detectors": [
+    { "id": "credit_card", "raw_count": 2, "validated_count": 2, "confidence": 80 }  // Luhn-validated
+  ]
+}
+```
+
+**ESCALATE** — `testdata/corpus/ssn_nocontext.txt` (a valid SSN, but *no* nearby
+keyword → uncertain, defer rather than block):
+
+```jsonc
+{
+  "file": "testdata/corpus/ssn_nocontext.txt",
+  "verdict": "ESCALATE",
+  "file_type": "plaintext",
+  "profiles":  [ { "profile_id": "US_PII", "confidence": 60 } ],  // 60 < block threshold 65
+  "detectors": [ { "id": "us_ssn", "validated_count": 1, "confidence": 60 } ]
+}
+```
+
+**ALLOW** — `testdata/corpus/clean.txt` (no sensitive data):
+
+```jsonc
+{
+  "file": "testdata/corpus/clean.txt",
+  "verdict": "ALLOW",
+  "file_type": "plaintext",
+  "profiles": null,
+  "detectors": null
+}
+```
+
+Office/PDF work the same way (text is extracted first), e.g.
+`./ch-inspect --file testdata/docs/hipaa.docx` → BLOCK with `file_type: "docx"`.
+
+### Profiling a directory (`--scan`)
+
+```
+$ ./ch-inspect --scan testdata/corpus --top 3
+=== endpoint-ci real-world scan ===
+files inspected: 18   (skipped >50MB: 0, killed OOM/timeout: 0)
+isolation:       on (child per file, RSS cap 512MB, timeout 8s)
+per-file latency:
+  mean 102µs  p50 97µs  p90 137µs  p95 152µs  p99 152µs  max 157µs
+verdicts:  ALLOW=3 (17%)  ESCALATE=3 (17%)  BLOCK=12 (67%)
+memory impact:
+  peak RSS:        ~18 MB
+```
+
+### Running the tests
+
+```
+$ go test ./...
+ok   internal/engine       0.34s
+ok   internal/validators   0.25s
+...  (other packages have no tests)
+```
+
 ## Verdicts
 
 - **ALLOW** — no profile matched (a binary/unsupported type also ALLOWs — nothing to inspect).
