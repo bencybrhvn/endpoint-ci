@@ -3,7 +3,9 @@
 package scan
 
 import (
+	"runtime"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -27,22 +29,77 @@ type Result struct {
 func Scan(text string, db *rules.DB) map[string]*Result {
 	out := map[string]*Result{}
 	lower := strings.ToLower(text)
+
+	// Single multi-pattern pass: which literal cues are present, and any digit?
+	var litPresent []bool
+	if db.LitMatcher != nil {
+		litPresent = db.LitMatcher.Present(text)
+	}
+	hasDigit := strings.ContainsAny(text, "0123456789")
+
 	// Each detector scans independently (matches may overlap across detectors —
 	// e.g. a 10-digit run is both NPI and bank-account-shaped). A single combined
 	// alternation would let detectors steal each other's matches, so we keep them
-	// separate. Each detector's own patterns are pre-combined into one regex.
+	// separate. Detectors are read-only and independent, so we run them across
+	// cores: per-file latency drops ~Ncore× while CPU stays a brief burst.
+	var todo []*rules.Detector
 	for _, d := range db.Detectors {
-		var r *Result
-		if d.Kind == "dictionary" {
-			r = scanDictionary(text, d, db)
-		} else {
-			r = scanRegex(text, lower, d, db)
+		if d.Kind != "dictionary" && skipByPrefilter(d, litPresent, hasDigit) {
+			continue
 		}
-		if r != nil {
-			out[d.ID] = r
+		todo = append(todo, d)
+	}
+
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, runtime.NumCPU())
+	for _, d := range todo {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(d *rules.Detector) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			var r *Result
+			if d.Kind == "dictionary" {
+				r = scanDictionary(text, d, db)
+			} else {
+				r = scanRegex(text, lower, d, db)
+			}
+			if r != nil {
+				mu.Lock()
+				out[d.ID] = r
+				mu.Unlock()
+			}
+		}(d)
+	}
+	wg.Wait()
+	return out
+}
+
+// skipByPrefilter reports whether a detector can be skipped without running its
+// regex: a literal-anchored detector with none of its literals present, or a
+// needs-digit detector in a buffer with no digits.
+func skipByPrefilter(d *rules.Detector, litPresent []bool, hasDigit bool) bool {
+	pf := d.Prefilter
+	if pf == nil {
+		return false
+	}
+	if len(pf.LitIdx) > 0 {
+		any := false
+		for _, ix := range pf.LitIdx {
+			if litPresent != nil && litPresent[ix] {
+				any = true
+				break
+			}
+		}
+		if !any {
+			return true
 		}
 	}
-	return out
+	if pf.NeedsDigit && !hasDigit {
+		return true
+	}
+	return false
 }
 
 func scanRegex(text, lower string, d *rules.Detector, db *rules.DB) *Result {
@@ -54,13 +111,20 @@ func scanRegex(text, lower string, d *rules.Detector, db *rules.DB) *Result {
 	var strs []string
 	var positions []int
 	for _, re := range d.Patterns {
-		for _, loc := range re.FindAllStringIndex(text, -1) {
+		// Cap matches: we never need more than a handful to satisfy confidence
+		// boosts and profile thresholds, and FindAllStringIndex stops scanning
+		// once the cap is hit — bounding cost on match-dense files.
+		for _, loc := range re.FindAllStringIndex(text, matchCap) {
 			strs = append(strs, text[loc[0]:loc[1]])
 			positions = append(positions, loc[0])
 		}
 	}
 	return computeRegexResult(d, strs, positions, lower, db)
 }
+
+// matchCap bounds matches per detector. Far above any profile min_count or the
+// instance-boost ceiling (3), so it never changes verdicts in practice.
+const matchCap = 64
 
 // computeRegexResult turns collected matches into a scored detector result.
 func computeRegexResult(d *rules.Detector, strs []string, positions []int, lower string, db *rules.DB) *Result {

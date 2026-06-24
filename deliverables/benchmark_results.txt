@@ -1,26 +1,29 @@
 endpoint-ci — benchmark results (darwin/arm64, Go go1.26.1)
+Engine: pure-Go, 27 detectors, 5 profiles. Multi-pattern matcher:
+Aho-Corasick literal prefilter + match cap + parallel detector scan.
 
 == Text corpus ==
 Benchmark over 10 files (1341 bytes total)
-  mean: 159.304µs
-  p50:  134.833µs
-  p95:  195.917µs
-  p99:  195.917µs
-  max:  243.25µs
+  mean: 196.937µs
+  p50:  142.25µs
+  p95:  362.375µs
+  p99:  362.375µs
+  max:  365.833µs
 
 == Document corpus (extraction + scan) ==
 Benchmark over 6 files (19926 bytes total)
-  mean: 301.152µs
-  p50:  97.958µs
-  p95:  132.417µs
-  p99:  132.417µs
-  max:  1.364375ms
+  mean: 235.638µs
+  p50:  92.916µs
+  p95:  473.333µs
+  p99:  473.333µs
+  max:  557.125µs
 
 == go test benchmarks ==
-BenchmarkInspect500K-14    	       6	 188205694 ns/op	   2.72 MB/s	 9069794 B/op	  105323 allocs/op
-BenchmarkInspect8K-14      	     404	   2973420 ns/op	   2.76 MB/s	  157035 B/op	    1806 allocs/op
+BenchmarkInspect500K-14    	      38	  30888948 ns/op	  16.58 MB/s	 3757541 B/op	   64769 allocs/op
+BenchmarkInspect8K-14      	    1500	    741891 ns/op	  11.07 MB/s	  285595 B/op	    1939 allocs/op
 
 == Budget (spec: <100ms for <=500KB) ==
-  ~2.8 MB/s. Typical <=8KB ~3ms (within budget). 500KB ~185ms (~1.8x over).
-  Optimisation path: multi-pattern matcher (Hyperscan/Vectorscan), fewer
-  overlapping numeric detectors, match caps, size gate. See docs/engine-notes.md.
+  ~17 MB/s (was 2.8 MB/s).
+  Typical <=8KB:          ~0.7ms   WITHIN budget
+  500KB PII-dense:        ~31ms    WITHIN budget
+  500KB prose+trailing:   ~33ms    WITHIN budget

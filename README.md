@@ -48,7 +48,8 @@ internal/
   rules/          rule loading + RE2 compatibility classification
   format/         magic-byte format detection
   extract/        text extraction (plaintext, OOXML via zip, PDF text layer)
-  scan/           leaf detector scan + confidence model
+  prefilter/      Aho-Corasick multi-literal matcher (detector gating)
+  scan/           leaf detector scan (parallel, match-capped) + confidence model
   validators/     luhn, iban (mod-97), aba, vin, ssn, ein, npi, dea
   profile/        profile composition evaluator
   engine/         pipeline orchestration + verdict

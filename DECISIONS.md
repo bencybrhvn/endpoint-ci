@@ -46,6 +46,24 @@ Each entry: **Context** (why) · **Decision** (what) · **Alternatives** · **Co
 
 ---
 
+## 2026-06-24 — Multi-pattern matcher to hit the 500KB latency budget
+
+**Context:** Naive per-detector scanning ran ~2.8 MB/s → a 500 KB file took ~185 ms, ~1.8× over the <100 ms target.
+
+**Decision:** Four layered, semantics-preserving optimisations (see docs/engine-notes.md):
+1. **Aho-Corasick literal prefilter** (`internal/prefilter`) — one pass marks which literal cues are present; literal-anchored detectors with no cue are skipped. Plus a `needs_digit` gate.
+2. **Match cap (64)** — `FindAllStringIndex` stops early; we never need all matches to satisfy a profile.
+3. **Parallel detector scan** — independent read-only detectors run across `NumCPU` goroutines.
+4. (kept) best-effort keyword gating + per-detector pattern combine.
+
+Result: ~17 MB/s. 500 KB dense ~31 ms, 500 KB prose+PII ~33 ms, typical ≤8 KB ~0.7 ms — all within budget. Race-clean.
+
+**Rejected:** a single mega-regex (all detectors in one alternation) — overlapping detectors steal each other's matches (ABA's `\d{9}` ate NPI digits → HIPAA stopped firing) and it was slower. RE2 set-matching gives membership, not all per-pattern positions.
+
+**Consequences:** counts saturate at the cap (fine for our thresholds); parallelism trades a brief CPU burst for latency (the ≤3% CPU budget is amortised over an event stream); a true vectorised matcher (Hyperscan) remains the production path for pathological inputs.
+
+---
+
 ## 2026-06-24 — Extraction: stdlib for OOXML, ledongthuc/pdf for PDF
 
 **Context:** The engine needs to inspect real documents (DOCX/XLSX/PPTX/PDF), not just plaintext. The spec's C design used miniz + MuPDF.

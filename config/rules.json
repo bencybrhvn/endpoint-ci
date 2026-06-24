@@ -1,6 +1,6 @@
 {
   "schema_version": "0.1-local",
-  "description": "endpoint-ci local detection rules. Two layers: 'detectors' (atomic leaf data types with RE2-safe patterns + validators) and 'profiles' (named concepts composed from detectors). Authored by us — the cloud policy export contains no patterns. Patterns are Go regexp (RE2): NO lookahead/lookbehind/backreference.",
+  "description": "endpoint-ci local detection rules. Two layers: 'detectors' (atomic leaf data types with RE2-safe patterns + validators) and 'profiles' (named concepts composed from detectors). Authored by us \u2014 the cloud policy export contains no patterns. Patterns are Go regexp (RE2): NO lookahead/lookbehind/backreference.",
   "confidence_model": {
     "_doc": "Per detector: start at base_confidence. Boost +validator_boost if a validator passes, +keyword_boost if a context keyword is within keyword_window chars of the match, +instance_boost per extra match up to max_instance_boosts. Cap 100. A detector 'fires' at/above its fire_threshold.",
     "validator_boost": 10,
@@ -26,75 +26,156 @@
       "id": "credit_card",
       "name": "Credit / Debit Card Number",
       "group": "financial",
-      "data_types": ["DT_Financial_PCI", "DT_PII_Personal_Data"],
+      "data_types": [
+        "DT_Financial_PCI",
+        "DT_PII_Personal_Data"
+      ],
       "patterns": [
         "\\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|3(?:0[0-5]|[68][0-9])[0-9]{11}|6(?:011|5[0-9]{2})[0-9]{12})\\b"
       ],
-      "validators": ["luhn_check"],
-      "keywords": ["card", "visa", "mastercard", "amex", "discover", "payment", "cc", "credit"],
+      "validators": [
+        "luhn_check"
+      ],
+      "keywords": [
+        "card",
+        "visa",
+        "mastercard",
+        "amex",
+        "discover",
+        "payment",
+        "cc",
+        "credit"
+      ],
       "base_confidence": 60,
-      "notes": "Major-network contiguous digits. Luhn kills most FPs."
+      "notes": "Major-network contiguous digits. Luhn kills most FPs.",
+      "prefilter": {
+        "needs_digit": true
+      }
     },
     {
       "id": "iban",
       "name": "IBAN (International Bank Account Number)",
       "group": "financial",
-      "data_types": ["DT_Financial_PCI"],
-      "patterns": ["\\b[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}\\b"],
-      "validators": ["iban_mod97"],
-      "keywords": ["iban", "bank", "account", "swift", "bic"],
-      "base_confidence": 70
+      "data_types": [
+        "DT_Financial_PCI"
+      ],
+      "patterns": [
+        "\\b[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}\\b"
+      ],
+      "validators": [
+        "iban_mod97"
+      ],
+      "keywords": [
+        "iban",
+        "bank",
+        "account",
+        "swift",
+        "bic"
+      ],
+      "base_confidence": 70,
+      "prefilter": {
+        "needs_digit": true
+      }
     },
     {
       "id": "aba_routing",
       "name": "ABA Routing / Transit Number",
       "group": "financial",
-      "data_types": ["DT_Financial_PCI"],
-      "patterns": ["\\b[0-9]{9}\\b"],
-      "validators": ["aba_checksum"],
-      "keywords": ["routing", "aba", "rtn", "transit", "wire"],
+      "data_types": [
+        "DT_Financial_PCI"
+      ],
+      "patterns": [
+        "\\b[0-9]{9}\\b"
+      ],
+      "validators": [
+        "aba_checksum"
+      ],
+      "keywords": [
+        "routing",
+        "aba",
+        "rtn",
+        "transit",
+        "wire"
+      ],
       "base_confidence": 40,
       "best_effort": true,
-      "notes": "9 digits is generic; checksum + keyword context required to fire."
+      "notes": "9 digits is generic; checksum + keyword context required to fire.",
+      "prefilter": {
+        "needs_digit": true
+      }
     },
     {
       "id": "swift_bic",
       "name": "SWIFT / BIC Code",
       "group": "financial",
-      "data_types": ["DT_Financial_PCI"],
-      "patterns": ["\\b[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\\b"],
+      "data_types": [
+        "DT_Financial_PCI"
+      ],
+      "patterns": [
+        "\\b[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\\b"
+      ],
       "validators": [],
-      "keywords": ["swift", "bic", "bank", "wire", "iban"],
+      "keywords": [
+        "swift",
+        "bic",
+        "bank",
+        "wire",
+        "iban"
+      ],
       "base_confidence": 55
     },
     {
       "id": "bank_account",
       "name": "Bank Account Number (generic)",
       "group": "financial",
-      "data_types": ["DT_Financial_PCI"],
-      "patterns": ["\\b[0-9]{8,17}\\b"],
+      "data_types": [
+        "DT_Financial_PCI"
+      ],
+      "patterns": [
+        "\\b[0-9]{8,17}\\b"
+      ],
       "validators": [],
-      "keywords": ["account number", "acct", "account no", "sort code", "bank"],
+      "keywords": [
+        "account number",
+        "acct",
+        "account no",
+        "sort code",
+        "bank"
+      ],
       "base_confidence": 25,
       "best_effort": true,
-      "notes": "High FP; only fires with keyword context."
+      "notes": "High FP; only fires with keyword context.",
+      "prefilter": {
+        "needs_digit": true
+      }
     },
-
     {
       "id": "email",
       "name": "Email Address",
       "group": "identity",
-      "data_types": ["DT_PII_Personal_Data"],
-      "patterns": ["\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b"],
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
+      "patterns": [
+        "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b"
+      ],
       "validators": [],
       "keywords": [],
-      "base_confidence": 80
+      "base_confidence": 80,
+      "prefilter": {
+        "literals": [
+          "@"
+        ]
+      }
     },
     {
       "id": "ip_address",
       "name": "IP Address (v4 / v6)",
       "group": "identity",
-      "data_types": ["DT_PII_Personal_Data", "DT_Technical_Keys_Secrets"],
+      "data_types": [
+        "DT_PII_Personal_Data",
+        "DT_Technical_Keys_Secrets"
+      ],
       "patterns": [
         "\\b(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\b",
         "\\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\\b",
@@ -103,33 +184,57 @@
       "validators": [],
       "keywords": [],
       "base_confidence": 60,
-      "notes": "IPv4 octet-bounded; IPv6 pragmatic (full + compressed forms)."
+      "notes": "IPv4 octet-bounded; IPv6 pragmatic (full + compressed forms).",
+      "prefilter": {
+        "needs_digit": true
+      }
     },
     {
       "id": "phone",
       "name": "Phone Number (NA + international)",
       "group": "identity",
-      "data_types": ["DT_PII_Personal_Data"],
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
       "patterns": [
         "\\b(?:\\+?1[ .\\-]?)?\\(?[2-9][0-9]{2}\\)?[ .\\-]?[0-9]{3}[ .\\-]?[0-9]{4}\\b",
         "\\b\\+[1-9][0-9]{7,14}\\b"
       ],
       "validators": [],
-      "keywords": ["phone", "tel", "mobile", "cell", "fax", "contact"],
-      "base_confidence": 45
+      "keywords": [
+        "phone",
+        "tel",
+        "mobile",
+        "cell",
+        "fax",
+        "contact"
+      ],
+      "base_confidence": 45,
+      "prefilter": {
+        "needs_digit": true
+      }
     },
     {
       "id": "date_of_birth",
       "name": "Date of Birth / Date",
       "group": "identity",
-      "data_types": ["DT_PII_Personal_Data"],
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
       "patterns": [
         "\\b(?:0?[1-9]|1[0-2])[/\\-.](?:0?[1-9]|[12][0-9]|3[01])[/\\-.](?:19|20)?[0-9]{2}\\b",
         "\\b(?:19|20)[0-9]{2}[/\\-.](?:0?[1-9]|1[0-2])[/\\-.](?:0?[1-9]|[12][0-9]|3[01])\\b",
         "(?i)\\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\\.?\\s+[0-3]?[0-9],?\\s+(?:19|20)[0-9]{2}\\b"
       ],
       "validators": [],
-      "keywords": ["dob", "date of birth", "born", "birth date", "d.o.b", "birthday"],
+      "keywords": [
+        "dob",
+        "date of birth",
+        "born",
+        "birth date",
+        "d.o.b",
+        "birthday"
+      ],
       "base_confidence": 25,
       "best_effort": true,
       "notes": "Matches dates generally; only DOB-confident with keyword context."
@@ -138,12 +243,20 @@
       "id": "postal_address",
       "name": "Postal / Mailing Address (US-style)",
       "group": "identity",
-      "data_types": ["DT_PII_Personal_Data"],
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
       "patterns": [
         "(?i)\\b[0-9]{1,6}\\s+(?:[A-Za-z0-9.'-]+\\s+){0,4}(?:street|st|avenue|ave|boulevard|blvd|road|rd|lane|ln|drive|dr|court|ct|way|place|pl|terrace|ter|circle|cir|highway|hwy|parkway|pkwy)\\b\\.?"
       ],
       "validators": [],
-      "keywords": ["address", "street", "city", "zip", "postal"],
+      "keywords": [
+        "address",
+        "street",
+        "city",
+        "zip",
+        "postal"
+      ],
       "base_confidence": 30,
       "best_effort": true
     },
@@ -152,19 +265,39 @@
       "name": "Person Name (gazetteer + title heuristic)",
       "group": "identity",
       "kind": "dictionary",
-      "data_types": ["DT_PII_Personal_Data"],
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
       "patterns": [
         "\\b(?:Mr|Mrs|Ms|Miss|Dr|Prof)\\.?\\s+[A-Z][a-z]+(?:\\s+[A-Z][a-z]+){1,2}\\b"
       ],
       "validators": [],
-      "keywords": ["name", "patient", "customer", "employee", "mr", "mrs", "ms", "dr"],
+      "keywords": [
+        "name",
+        "patient",
+        "customer",
+        "employee",
+        "mr",
+        "mrs",
+        "ms",
+        "dr"
+      ],
       "base_confidence": 20,
       "best_effort": true,
       "dictionary": {
         "given_names": "config/lexicons/given_names.txt",
         "surnames": "config/lexicons/surnames.txt",
         "common_words": "config/lexicons/common_words.txt",
-        "titles": ["mr", "mrs", "ms", "miss", "dr", "prof", "sir", "madam"],
+        "titles": [
+          "mr",
+          "mrs",
+          "ms",
+          "miss",
+          "dr",
+          "prof",
+          "sir",
+          "madam"
+        ],
         "min_capitalized_tokens": 2,
         "max_span_tokens": 3,
         "keyword_window": 200,
@@ -183,152 +316,304 @@
       "id": "url",
       "name": "URL",
       "group": "identity",
-      "data_types": ["DT_PII_Personal_Data", "DT_Technical_Keys_Secrets"],
-      "patterns": ["\\bhttps?://[^\\s/$.?#][^\\s]*"],
+      "data_types": [
+        "DT_PII_Personal_Data",
+        "DT_Technical_Keys_Secrets"
+      ],
+      "patterns": [
+        "\\bhttps?://[^\\s/$.?#][^\\s]*"
+      ],
       "validators": [],
       "keywords": [],
-      "base_confidence": 60
+      "base_confidence": 60,
+      "prefilter": {
+        "literals": [
+          "http"
+        ]
+      }
     },
     {
       "id": "vin",
       "name": "Vehicle Identification Number (VIN)",
       "group": "identity",
-      "data_types": ["DT_PII_Personal_Data"],
-      "patterns": ["\\b[A-HJ-NPR-Z0-9]{17}\\b"],
-      "validators": ["vin_check"],
-      "keywords": ["vin", "vehicle", "chassis"],
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
+      "patterns": [
+        "\\b[A-HJ-NPR-Z0-9]{17}\\b"
+      ],
+      "validators": [
+        "vin_check"
+      ],
+      "keywords": [
+        "vin",
+        "vehicle",
+        "chassis"
+      ],
       "base_confidence": 50
     },
-
     {
       "id": "us_ssn",
       "name": "US Social Security Number / Taxpayer ID",
       "group": "govid",
-      "data_types": ["DT_PII_Personal_Data"],
-      "patterns": ["\\b[0-9]{3}[ \\-]?[0-9]{2}[ \\-]?[0-9]{4}\\b"],
-      "validators": ["ssn_check"],
-      "keywords": ["ssn", "social security", "taxpayer", "tin", "ss#"],
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
+      "patterns": [
+        "\\b[0-9]{3}[ \\-]?[0-9]{2}[ \\-]?[0-9]{4}\\b"
+      ],
+      "validators": [
+        "ssn_check"
+      ],
+      "keywords": [
+        "ssn",
+        "social security",
+        "taxpayer",
+        "tin",
+        "ss#"
+      ],
       "base_confidence": 50,
-      "notes": "Lookahead-free: invalid ranges (000/666/9xx etc.) rejected by ssn_check validator, not regex."
+      "notes": "Lookahead-free: invalid ranges (000/666/9xx etc.) rejected by ssn_check validator, not regex.",
+      "prefilter": {
+        "needs_digit": true
+      }
     },
     {
       "id": "us_ein",
       "name": "US Employer Identification Number (EIN)",
       "group": "govid",
-      "data_types": ["DT_PII_Personal_Data"],
-      "patterns": ["\\b[0-9]{2}-[0-9]{7}\\b"],
-      "validators": ["ein_prefix"],
-      "keywords": ["ein", "employer id", "tax id", "federal tax"],
-      "base_confidence": 50
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
+      "patterns": [
+        "\\b[0-9]{2}-[0-9]{7}\\b"
+      ],
+      "validators": [
+        "ein_prefix"
+      ],
+      "keywords": [
+        "ein",
+        "employer id",
+        "tax id",
+        "federal tax"
+      ],
+      "base_confidence": 50,
+      "prefilter": {
+        "needs_digit": true
+      }
     },
     {
       "id": "us_passport",
       "name": "US Passport Number",
       "group": "govid",
-      "data_types": ["DT_PII_Personal_Data"],
-      "patterns": ["\\b[0-9]{9}\\b", "\\b[A-Z][0-9]{8}\\b"],
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
+      "patterns": [
+        "\\b[0-9]{9}\\b",
+        "\\b[A-Z][0-9]{8}\\b"
+      ],
       "validators": [],
-      "keywords": ["passport"],
+      "keywords": [
+        "passport"
+      ],
       "base_confidence": 30,
       "best_effort": true,
-      "notes": "9 digits is generic; keyword-gated."
+      "notes": "9 digits is generic; keyword-gated.",
+      "prefilter": {
+        "needs_digit": true
+      }
     },
     {
       "id": "uk_nino",
       "name": "UK National Insurance Number (NINO)",
       "group": "govid",
-      "data_types": ["DT_PII_Personal_Data"],
-      "patterns": ["\\b[ABCEGHJ-PRSTW-Z][ABCEGHJ-NPRSTW-Z][0-9]{6}[A-D]\\b"],
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
+      "patterns": [
+        "\\b[ABCEGHJ-PRSTW-Z][ABCEGHJ-NPRSTW-Z][0-9]{6}[A-D]\\b"
+      ],
       "validators": [],
-      "keywords": ["nino", "national insurance", "ni number"],
-      "base_confidence": 60
+      "keywords": [
+        "nino",
+        "national insurance",
+        "ni number"
+      ],
+      "base_confidence": 60,
+      "prefilter": {
+        "needs_digit": true
+      }
     },
     {
       "id": "uk_passport",
       "name": "UK Passport Number",
       "group": "govid",
-      "data_types": ["DT_PII_Personal_Data"],
-      "patterns": ["\\b[0-9]{9}\\b"],
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
+      "patterns": [
+        "\\b[0-9]{9}\\b"
+      ],
       "validators": [],
-      "keywords": ["passport"],
+      "keywords": [
+        "passport"
+      ],
       "base_confidence": 30,
-      "best_effort": true
+      "best_effort": true,
+      "prefilter": {
+        "needs_digit": true
+      }
     },
     {
       "id": "uk_utr",
       "name": "UK Unique Taxpayer Reference (UTR)",
       "group": "govid",
-      "data_types": ["DT_PII_Personal_Data"],
-      "patterns": ["\\b[0-9]{10}\\b"],
+      "data_types": [
+        "DT_PII_Personal_Data"
+      ],
+      "patterns": [
+        "\\b[0-9]{10}\\b"
+      ],
       "validators": [],
-      "keywords": ["utr", "unique taxpayer", "tax reference"],
+      "keywords": [
+        "utr",
+        "unique taxpayer",
+        "tax reference"
+      ],
       "base_confidence": 30,
-      "best_effort": true
+      "best_effort": true,
+      "prefilter": {
+        "needs_digit": true
+      }
     },
-
     {
       "id": "mrn",
       "name": "Medical Record Number (MRN)",
       "group": "health",
-      "data_types": ["DT_PHI_Medical"],
+      "data_types": [
+        "DT_PHI_Medical"
+      ],
       "patterns": [
         "(?i)\\bMRN[:#]?\\s?[0-9]{6,10}\\b",
         "\\b[0-9]{6,10}\\b"
       ],
       "validators": [],
-      "keywords": ["mrn", "medical record", "patient id", "chart number"],
+      "keywords": [
+        "mrn",
+        "medical record",
+        "patient id",
+        "chart number"
+      ],
       "base_confidence": 30,
       "best_effort": true,
-      "notes": "Bare-number form only fires with keyword context."
+      "notes": "Bare-number form only fires with keyword context.",
+      "prefilter": {
+        "needs_digit": true
+      }
     },
     {
       "id": "us_npi",
       "name": "US National Provider Identifier (NPI)",
       "group": "health",
-      "data_types": ["DT_PHI_Medical"],
-      "patterns": ["\\b[0-9]{10}\\b"],
-      "validators": ["npi_check"],
-      "keywords": ["npi", "provider", "physician", "clinician"],
-      "base_confidence": 50
+      "data_types": [
+        "DT_PHI_Medical"
+      ],
+      "patterns": [
+        "\\b[0-9]{10}\\b"
+      ],
+      "validators": [
+        "npi_check"
+      ],
+      "keywords": [
+        "npi",
+        "provider",
+        "physician",
+        "clinician"
+      ],
+      "base_confidence": 50,
+      "prefilter": {
+        "needs_digit": true
+      }
     },
     {
       "id": "us_dea",
       "name": "US DEA Registration Number",
       "group": "health",
-      "data_types": ["DT_PHI_Medical"],
-      "patterns": ["\\b[A-Za-z][A-Za-z9][0-9]{7}\\b"],
-      "validators": ["dea_check"],
-      "keywords": ["dea", "prescriber", "controlled substance", "prescription"],
-      "base_confidence": 50
+      "data_types": [
+        "DT_PHI_Medical"
+      ],
+      "patterns": [
+        "\\b[A-Za-z][A-Za-z9][0-9]{7}\\b"
+      ],
+      "validators": [
+        "dea_check"
+      ],
+      "keywords": [
+        "dea",
+        "prescriber",
+        "controlled substance",
+        "prescription"
+      ],
+      "base_confidence": 50,
+      "prefilter": {
+        "needs_digit": true
+      }
     },
     {
       "id": "icd10",
       "name": "ICD-10 Diagnosis Code",
       "group": "health",
-      "data_types": ["DT_PHI_Medical"],
-      "patterns": ["\\b[A-TV-Z][0-9]{2}(?:\\.[A-Z0-9]{1,4})?\\b"],
+      "data_types": [
+        "DT_PHI_Medical"
+      ],
+      "patterns": [
+        "\\b[A-TV-Z][0-9]{2}(?:\\.[A-Z0-9]{1,4})?\\b"
+      ],
       "validators": [],
-      "keywords": ["icd", "diagnosis", "dx", "diagnosed"],
+      "keywords": [
+        "icd",
+        "diagnosis",
+        "dx",
+        "diagnosed"
+      ],
       "base_confidence": 40,
-      "notes": "ICD-10-CM code shape; keyword context recommended."
+      "notes": "ICD-10-CM code shape; keyword context recommended.",
+      "prefilter": {
+        "needs_digit": true
+      }
     },
     {
       "id": "health_insurance",
       "name": "Health Insurance / Member Number (generic)",
       "group": "health",
-      "data_types": ["DT_PHI_Medical"],
-      "patterns": ["\\b[A-Z0-9]{6,12}\\b"],
+      "data_types": [
+        "DT_PHI_Medical"
+      ],
+      "patterns": [
+        "\\b[A-Z0-9]{6,12}\\b"
+      ],
       "validators": [],
-      "keywords": ["member id", "policy number", "health plan", "insurance", "subscriber"],
+      "keywords": [
+        "member id",
+        "policy number",
+        "health plan",
+        "insurance",
+        "subscriber"
+      ],
       "base_confidence": 25,
-      "best_effort": true
+      "best_effort": true,
+      "prefilter": {
+        "needs_digit": true
+      }
     },
-
     {
       "id": "api_key",
       "name": "API / Cloud Access Key",
       "group": "secret",
-      "data_types": ["DT_Technical_Keys_Secrets"],
+      "data_types": [
+        "DT_Technical_Keys_Secrets"
+      ],
       "patterns": [
         "\\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA)[A-Z0-9]{16}\\b",
         "\\bAIza[0-9A-Za-z_-]{35}\\b",
@@ -337,39 +622,94 @@
         "\\b(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{16,}\\b"
       ],
       "validators": [],
-      "keywords": ["key", "secret", "token", "apikey", "api_key", "access"],
+      "keywords": [
+        "key",
+        "secret",
+        "token",
+        "apikey",
+        "api_key",
+        "access"
+      ],
       "base_confidence": 80,
-      "notes": "Vendor-prefixed keys (AWS, Google, GitHub, Slack, Stripe)."
+      "notes": "Vendor-prefixed keys (AWS, Google, GitHub, Slack, Stripe).",
+      "prefilter": {
+        "literals": [
+          "AKIA",
+          "ASIA",
+          "AGPA",
+          "AIDA",
+          "AROA",
+          "ANPA",
+          "ANVA",
+          "AIza",
+          "ghp_",
+          "gho_",
+          "ghu_",
+          "ghs_",
+          "ghr_",
+          "xox",
+          "sk_live",
+          "sk_test",
+          "pk_live",
+          "pk_test"
+        ]
+      }
     },
     {
       "id": "private_key",
       "name": "Private Key (PEM)",
       "group": "secret",
-      "data_types": ["DT_Technical_Keys_Secrets"],
-      "patterns": ["-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----"],
+      "data_types": [
+        "DT_Technical_Keys_Secrets"
+      ],
+      "patterns": [
+        "-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----"
+      ],
       "validators": [],
       "keywords": [],
-      "base_confidence": 95
+      "base_confidence": 95,
+      "prefilter": {
+        "literals": [
+          "PRIVATE KEY"
+        ]
+      }
     },
     {
       "id": "jwt",
       "name": "JSON Web Token (JWT) / Bearer Token",
       "group": "secret",
-      "data_types": ["DT_Technical_Keys_Secrets"],
-      "patterns": ["\\beyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\b"],
+      "data_types": [
+        "DT_Technical_Keys_Secrets"
+      ],
+      "patterns": [
+        "\\beyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\b"
+      ],
       "validators": [],
-      "keywords": ["token", "bearer", "jwt", "authorization"],
-      "base_confidence": 80
+      "keywords": [
+        "token",
+        "bearer",
+        "jwt",
+        "authorization"
+      ],
+      "base_confidence": 80,
+      "prefilter": {
+        "literals": [
+          "eyJ"
+        ]
+      }
     }
   ],
-
   "profiles": [
     {
       "profile_id": "PCI",
       "profile_name": "Payment Card Data (PCI)",
       "data_type": "DT_Financial_PCI",
       "verdict_on_match": "BLOCK",
-      "match": { "op": "detector", "id": "credit_card", "min_validated": 1 }
+      "match": {
+        "op": "detector",
+        "id": "credit_card",
+        "min_validated": 1
+      }
     },
     {
       "profile_id": "FINANCIAL",
@@ -377,12 +717,32 @@
       "data_type": "DT_Financial_PCI",
       "verdict_on_match": "BLOCK",
       "match": {
-        "op": "or", "min": 1, "of": [
-          { "op": "detector", "id": "credit_card", "min_validated": 1 },
-          { "op": "detector", "id": "iban", "min_validated": 1 },
-          { "op": "detector", "id": "aba_routing", "min_validated": 1 },
-          { "op": "detector", "id": "swift_bic" },
-          { "op": "detector", "id": "bank_account" }
+        "op": "or",
+        "min": 1,
+        "of": [
+          {
+            "op": "detector",
+            "id": "credit_card",
+            "min_validated": 1
+          },
+          {
+            "op": "detector",
+            "id": "iban",
+            "min_validated": 1
+          },
+          {
+            "op": "detector",
+            "id": "aba_routing",
+            "min_validated": 1
+          },
+          {
+            "op": "detector",
+            "id": "swift_bic"
+          },
+          {
+            "op": "detector",
+            "id": "bank_account"
+          }
         ]
       }
     },
@@ -392,22 +752,57 @@
       "data_type": "DT_PII_Personal_Data",
       "verdict_on_match": "BLOCK",
       "match": {
-        "op": "or", "min": 1, "of": [
+        "op": "or",
+        "min": 1,
+        "of": [
           {
-            "op": "or", "min": 2, "of": [
-              { "op": "detector", "id": "email" },
-              { "op": "detector", "id": "phone" },
-              { "op": "detector", "id": "ip_address" },
-              { "op": "detector", "id": "date_of_birth" },
-              { "op": "detector", "id": "postal_address" },
-              { "op": "detector", "id": "person_name" }
+            "op": "or",
+            "min": 2,
+            "of": [
+              {
+                "op": "detector",
+                "id": "email"
+              },
+              {
+                "op": "detector",
+                "id": "phone"
+              },
+              {
+                "op": "detector",
+                "id": "ip_address"
+              },
+              {
+                "op": "detector",
+                "id": "date_of_birth"
+              },
+              {
+                "op": "detector",
+                "id": "postal_address"
+              },
+              {
+                "op": "detector",
+                "id": "person_name"
+              }
             ]
           },
           {
-            "op": "or", "min": 1, "of": [
-              { "op": "detector", "id": "us_ssn", "min_validated": 1 },
-              { "op": "detector", "id": "us_passport" },
-              { "op": "detector", "id": "credit_card", "min_validated": 1 }
+            "op": "or",
+            "min": 1,
+            "of": [
+              {
+                "op": "detector",
+                "id": "us_ssn",
+                "min_validated": 1
+              },
+              {
+                "op": "detector",
+                "id": "us_passport"
+              },
+              {
+                "op": "detector",
+                "id": "credit_card",
+                "min_validated": 1
+              }
             ]
           }
         ]
@@ -419,24 +814,65 @@
       "data_type": "DT_PHI_Medical",
       "verdict_on_match": "BLOCK",
       "match": {
-        "op": "and", "of": [
+        "op": "and",
+        "of": [
           {
-            "op": "or", "min": 1, "of": [
-              { "op": "detector", "id": "mrn" },
-              { "op": "detector", "id": "us_npi", "min_validated": 1 },
-              { "op": "detector", "id": "us_dea", "min_validated": 1 },
-              { "op": "detector", "id": "icd10" },
-              { "op": "detector", "id": "health_insurance" }
+            "op": "or",
+            "min": 1,
+            "of": [
+              {
+                "op": "detector",
+                "id": "mrn"
+              },
+              {
+                "op": "detector",
+                "id": "us_npi",
+                "min_validated": 1
+              },
+              {
+                "op": "detector",
+                "id": "us_dea",
+                "min_validated": 1
+              },
+              {
+                "op": "detector",
+                "id": "icd10"
+              },
+              {
+                "op": "detector",
+                "id": "health_insurance"
+              }
             ]
           },
           {
-            "op": "or", "min": 2, "of": [
-              { "op": "detector", "id": "us_ssn", "min_validated": 1 },
-              { "op": "detector", "id": "email" },
-              { "op": "detector", "id": "phone" },
-              { "op": "detector", "id": "date_of_birth" },
-              { "op": "detector", "id": "postal_address" },
-              { "op": "detector", "id": "person_name" }
+            "op": "or",
+            "min": 2,
+            "of": [
+              {
+                "op": "detector",
+                "id": "us_ssn",
+                "min_validated": 1
+              },
+              {
+                "op": "detector",
+                "id": "email"
+              },
+              {
+                "op": "detector",
+                "id": "phone"
+              },
+              {
+                "op": "detector",
+                "id": "date_of_birth"
+              },
+              {
+                "op": "detector",
+                "id": "postal_address"
+              },
+              {
+                "op": "detector",
+                "id": "person_name"
+              }
             ]
           }
         ]
@@ -447,12 +883,23 @@
       "profile_name": "Technical Keys & Secrets",
       "data_type": "DT_Technical_Keys_Secrets",
       "verdict_on_match": "BLOCK",
-      "_note": "Bonus profile — leaves are built; not a primary MVP target.",
+      "_note": "Bonus profile \u2014 leaves are built; not a primary MVP target.",
       "match": {
-        "op": "or", "min": 1, "of": [
-          { "op": "detector", "id": "api_key" },
-          { "op": "detector", "id": "private_key" },
-          { "op": "detector", "id": "jwt" }
+        "op": "or",
+        "min": 1,
+        "of": [
+          {
+            "op": "detector",
+            "id": "api_key"
+          },
+          {
+            "op": "detector",
+            "id": "private_key"
+          },
+          {
+            "op": "detector",
+            "id": "jwt"
+          }
         ]
       }
     }

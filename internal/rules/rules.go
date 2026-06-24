@@ -10,6 +10,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/cyberhaven/endpoint-ci/internal/prefilter"
 )
 
 // Compatibility classes (spec §2.2).
@@ -52,6 +54,14 @@ type Dictionary struct {
 	TitleSet map[string]bool `json:"-"`
 }
 
+// Prefilter is a cheap pre-check: skip this detector's regex unless one of its
+// literals is present (Aho-Corasick) and/or the file contains a digit.
+type Prefilter struct {
+	Literals   []string `json:"literals"`
+	NeedsDigit bool     `json:"needs_digit"`
+	LitIdx     []int    `json:"-"` // indices into DB.LitMatcher
+}
+
 type Detector struct {
 	ID             string      `json:"id"`
 	Name           string      `json:"name"`
@@ -64,6 +74,7 @@ type Detector struct {
 	BaseConfidence int         `json:"base_confidence"`
 	BestEffort     bool        `json:"best_effort"`
 	Dict           *Dictionary `json:"dictionary"`
+	Prefilter      *Prefilter  `json:"prefilter"`
 
 	// compiled (not from JSON)
 	Patterns []*regexp.Regexp `json:"-"`
@@ -93,6 +104,10 @@ type DB struct {
 	Conf          ConfidenceModel `json:"confidence_model"`
 	Detectors     []*Detector     `json:"detectors"`
 	Profiles      []Profile       `json:"profiles"`
+
+	// LitMatcher is the single Aho-Corasick automaton over every detector's
+	// literal cues — one pass tells the scanner which detectors can match.
+	LitMatcher *prefilter.Matcher `json:"-"`
 
 	byID map[string]*Detector
 }
@@ -142,6 +157,21 @@ func Load(path string) (*DB, error) {
 				return nil, fmt.Errorf("detector %s: %w", d.ID, err)
 			}
 		}
+	}
+
+	// Build one Aho-Corasick automaton across all detector literal cues.
+	var lits []string
+	for _, d := range db.Detectors {
+		if d.Prefilter == nil {
+			continue
+		}
+		for _, lit := range d.Prefilter.Literals {
+			d.Prefilter.LitIdx = append(d.Prefilter.LitIdx, len(lits))
+			lits = append(lits, lit)
+		}
+	}
+	if len(lits) > 0 {
+		db.LitMatcher = prefilter.New(lits)
 	}
 	return &db, nil
 }

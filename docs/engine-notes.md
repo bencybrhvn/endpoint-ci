@@ -8,7 +8,8 @@ verdicts — it never enacts blocking.
 ```
 file → detect format (magic bytes)
      → extract text (plaintext direct · OOXML via archive/zip · PDF text layer)
-     → scan (27 leaf detectors: regex + dictionary)
+     → prefilter (Aho-Corasick literals + needs-digit, one pass → skip detectors)
+     → scan (27 leaf detectors: regex + dictionary, run across cores, match-capped)
      → confidence model (base +validator +keyword +instances)
      → profile evaluation (and/or/min/min_validated over fired detectors)
      → verdict: BLOCK / ESCALATE / ALLOW
@@ -63,33 +64,44 @@ These confirm the design intent: validators kill FPs (invalid Luhn → ALLOW),
 context drives BLOCK vs ESCALATE (SSN with/without keyword), and a lone weak
 signal (names only) cannot raise a profile.
 
-## Performance findings (the budget is the point)
+## Performance — multi-pattern matcher (within budget)
 
-Throughput ≈ **2.8 MB/s** (pure-Go regexp, 27 detectors, per-detector scan):
+Throughput ≈ **17 MB/s** (was 2.8 MB/s before optimisation):
 
-- Typical files (≤ 8 KB): **~3 ms** — well within the ≤100 ms target.
-- 500 KB worst case: **~185 ms** — **~1.8× over** the 100 ms target.
+| Input | Latency | Budget (<100 ms ≤500 KB) |
+|---|---|---|
+| Typical ≤ 8 KB | ~0.7 ms | ✅ |
+| 500 KB, PII-dense | ~31 ms | ✅ |
+| 500 KB, mostly prose + trailing PII | ~33 ms | ✅ |
 
-### What we tried
-- **Best-effort keyword gating** — skip a context-gated detector's regex if its
-  keyword is absent anywhere in the file. Big win (DOB 40 ms → 0.4 ms on text
-  with no DOB context). Kept.
-- **Per-detector pattern combine** — OR a detector's patterns into one regex.
-  Modest win. Kept.
-- **Single mega-regex (RE2 set, all detectors in one alternation)** — *reverted*.
-  In one alternation, overlapping detectors **steal** each other's matches (the
-  generic `\d{9}` ABA detector consumes an NPI's digits, so HIPAA stopped firing),
-  and the large submatch arrays made it slower. RE2 set-matching reports *which*
-  patterns match, not all per-pattern positions — so it can't replace independent
-  per-detector scans without losing matches.
+### Techniques (all preserve independent-detector semantics)
+1. **Aho-Corasick literal prefilter** (`internal/prefilter`) — one pass over the
+   buffer reports which literal cues are present (`AKIA`, `eyJ`, `@`, `http`, …);
+   a literal-anchored detector whose cue is absent is skipped entirely. Plus a
+   one-shot `needs_digit` check. This is the multi-pattern matcher front end.
+2. **Best-effort keyword gating** — context-gated detectors skip their regex if
+   their keyword is absent anywhere (DOB 40 ms → 0.4 ms on text with no DOB).
+3. **Per-detector pattern combine** — a detector's patterns are OR'd into one regex.
+4. **Match cap (64)** — `FindAllStringIndex(text, 64)` stops scanning once enough
+   matches are found; we never need all 2008 cards to know a file is PCI. Far above
+   any profile threshold, so verdicts are unchanged.
+5. **Parallel detector scan** — detectors are read-only and independent, so they
+   run across `NumCPU` goroutines. Per-file latency drops ~Ncore×; CPU is a brief
+   burst, not steady-state (the ≤3% CPU budget is amortised over an event stream).
+   Race-clean (`go test -race`).
 
-### Path to budget (post-PoC)
-- A true multi-pattern matcher returning per-pattern matches without stealing
-  (Hyperscan / Vectorscan), or RE2::Set purely as a membership pre-filter to skip
-  detectors with zero candidates.
-- Reduce overlapping generic-numeric detectors (aba/bank/passport/utr/npi all
-  match bare digit runs).
-- Cap match enumeration once a profile is already satisfied.
+### What we tried and rejected
+- **Single mega-regex (all detectors in one alternation)** — *reverted*. In one
+  alternation, overlapping detectors **steal** each other's matches (the generic
+  `\d{9}` ABA detector consumed an NPI's digits, so HIPAA stopped firing), and the
+  large submatch arrays made it slower. RE2 set-matching reports *which* patterns
+  match, not all per-pattern positions, so it can't replace independent scans.
+
+### Caveats / further headroom (post-PoC)
+- The match cap means counts saturate at 64 (fine for our thresholds; revisit if a
+  profile ever needs `min_count` > 64).
+- A genuinely pathological buffer (one 500 KB token matching many detectors) would
+  still cost N scans; a true vectorised matcher (Hyperscan) is the production path.
 - Size gate + head/tail extraction for very large files (spec `ExtractConfig`).
 
 ## Notes / divergences from the illustrative spec corpus
