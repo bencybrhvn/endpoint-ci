@@ -11,6 +11,8 @@ PDF), and returns a structured verdict — **ALLOW / BLOCK / ESCALATE** — buil
 - Sensitivity-label fast-path (Microsoft MIP/AIP + custom markers)
 - Within budget: ~p95 3 ms on real files, peak RSS < 20 MB
 
+> **Architecture:** [`docs/architecture.md`](./docs/architecture.md) (diagrams). 
+> **Contributing:** [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 > Background & design: [`overview.md`](./overview.md) (spec), [`CLAUDE.md`](./CLAUDE.md),
 > [`DECISIONS.md`](./DECISIONS.md), [`docs/engine-notes.md`](./docs/engine-notes.md),
 > [`docs/data-type-catalogue.md`](./docs/data-type-catalogue.md).
@@ -194,6 +196,12 @@ uses the standard library only.
 and prefilter cues) and `profiles` (boolean compositions with a `verdict_on_match`
 ceiling). After any edit, run `go run ./tools/validate-rules config/rules.json` to
 confirm every pattern is RE2-compatible and every profile reference resolves.
+
+## Contributing
+
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for setup, conventions, and step-by-step
+recipes (add a detector, profile, validator, label marker, or file format) and
+[`docs/architecture.md`](./docs/architecture.md) for the pipeline and package map.
 
 ## Status
 
