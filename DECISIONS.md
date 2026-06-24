@@ -46,6 +46,16 @@ Each entry: **Context** (why) · **Decision** (what) · **Alternatives** · **Co
 
 ---
 
+## 2026-06-24 — Size gate + head/tail extraction
+
+**Context:** A multi-MB/GB file shouldn't be fully inspected inline on the endpoint hot path (spec §4.3).
+
+**Decision:** `extract.Config` gains `MaxFileBytes` (gate, default 16 MB; CLI `--max-file-mb`) and `HeadTailWindow` (default 64 KB). Over the gate, only the head + tail windows are inspected and the result is flagged `Partial` (plaintext gated on raw bytes to avoid building a huge string). The verdict is **coverage-aware**: a `Partial`/`Truncated` result that is otherwise clean → **ESCALATE**, not ALLOW (the unseen middle must not be silently passed). Profiles/labels firing in the head/tail still BLOCK; the metadata label path always runs on the full container (docProps are tiny).
+
+**Consequences:** cost is bounded regardless of file size (21 MB file → 131 KB inspected, ~18 ms). The trade-off is the middle of very large files isn't scanned locally — surfaced as ESCALATE for cloud/heavier inspection, exactly the intended hand-off.
+
+---
+
 ## 2026-06-24 — OOXML sensitivity-label fast-path
 
 **Context:** Sensitivity labels (MS MIP/AIP, custom org markings) are a high-value, cheap signal that doesn't need full content inspection (spec §4.5).

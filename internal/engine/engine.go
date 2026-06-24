@@ -28,6 +28,7 @@ type Verdict struct {
 	FileType     string            `json:"file_type"`
 	BytesSeen    int               `json:"bytes_seen"`
 	Truncated    bool              `json:"truncated,omitempty"`
+	Partial      bool              `json:"partial_coverage,omitempty"`
 	ShortCircuit bool              `json:"short_circuited,omitempty"`
 	Note         string            `json:"note,omitempty"`
 	ScanMicros   int64             `json:"scan_duration_us"`
@@ -107,15 +108,25 @@ func InspectFile(path string, db *rules.DB, cfg extract.Config) (Verdict, error)
 	v := Inspect(path, res.Text, db)
 	v.FileType = res.Type.String()
 	v.Truncated = res.Truncated
+	v.Partial = res.Partial
 
 	// OOXML sensitivity-label fast-path: read only docProps from the raw bytes.
-	// A metadata label is machine-written → authoritative → BLOCK.
+	// A metadata label is machine-written → authoritative → BLOCK. Runs on the
+	// full container even under the size gate (docProps are tiny).
 	if meta := label.Metadata(data, res.Type, db.LabelMarkers); len(meta) > 0 {
 		v.Labels = append(meta, v.Labels...)
 		v.Disposition = upgrade(v.Disposition, Block)
 		if v.Note == "" {
 			v.Note = "sensitivity label present in document metadata"
 		}
+	}
+
+	// Incomplete coverage (size gate or truncation): a clean verdict is only
+	// "clean for what we saw" — escalate rather than ALLOW so the middle isn't
+	// silently passed.
+	if (res.Partial || res.Truncated) && v.Disposition == Allow {
+		v.Disposition = Escalate
+		v.Note = "incomplete coverage (size gate / truncation): escalate for full inspection"
 	}
 	return v, nil
 }

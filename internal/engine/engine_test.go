@@ -155,6 +155,51 @@ func TestEarlyExit(t *testing.T) {
 	}
 }
 
+// TestSizeGate verifies head/tail extraction + coverage-aware escalation:
+// PII buried in the skipped middle yields ESCALATE; PII in the tail is caught.
+func TestSizeGate(t *testing.T) {
+	db := loadDB(t)
+	dir := t.TempDir()
+	filler := strings.Repeat("Lorem ipsum dolor sit amet consectetur. ", 4000) // ~160 KB
+
+	write := func(name, content string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	cfg := extract.Config{MaxFileBytes: 64 << 10, HeadTailWindow: 8 << 10} // 64KB gate, 8KB windows
+
+	// PII only in the middle (skipped by head/tail) -> partial + escalate.
+	midPII := write("mid.txt",
+		filler+" Card 4111111111111111. SSN 123-45-6789. "+filler)
+	v, err := InspectFile(midPII, db, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !v.Partial {
+		t.Errorf("mid.txt: expected partial coverage")
+	}
+	if v.Disposition != Escalate {
+		t.Errorf("mid.txt: verdict = %s, want ESCALATE (middle PII not seen)", v.Disposition)
+	}
+
+	// PII in the tail window -> caught -> BLOCK.
+	tailPII := write("tail.txt",
+		filler+filler+" payment card 4111111111111111 on file.\n")
+	v2, err := InspectFile(tailPII, db, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !v2.Partial {
+		t.Errorf("tail.txt: expected partial coverage")
+	}
+	if v2.Disposition != Block {
+		t.Errorf("tail.txt: verdict = %s, want BLOCK (tail PII seen)", v2.Disposition)
+	}
+}
+
 func makeLarge(n int) string {
 	block := "Lorem ipsum dolor sit amet. Contact john.doe@example.com or (415) 555-2671. " +
 		"Card 4111111111111111. SSN 123-45-6789. NPI 1234567893. IBAN GB82WEST12345698765432.\n"

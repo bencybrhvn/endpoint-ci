@@ -24,6 +24,7 @@ func main() {
 	file := flag.String("file", "", "file to inspect")
 	report := flag.Bool("report", false, "print rule compatibility report and exit")
 	bench := flag.String("bench", "", "benchmark: scan every file in this directory")
+	maxFileMB := flag.Int("max-file-mb", 16, "size gate: files larger than this are head/tail inspected only")
 	flag.Parse()
 
 	db, err := rules.Load(*rulesPath)
@@ -31,14 +32,15 @@ func main() {
 		fmt.Fprintln(os.Stderr, "load rules:", err)
 		os.Exit(1)
 	}
+	cfg := extract.Config{MaxFileBytes: *maxFileMB << 20}
 
 	switch {
 	case *report:
 		printReport(db)
 	case *bench != "":
-		runBench(db, *bench)
+		runBench(db, *bench, cfg)
 	case *file != "":
-		v, err := engine.InspectFile(*file, db, extract.Config{})
+		v, err := engine.InspectFile(*file, db, cfg)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "inspect file:", err)
 			os.Exit(1)
@@ -82,7 +84,7 @@ func printReport(db *rules.DB) {
 	}
 }
 
-func runBench(db *rules.DB, dir string) {
+func runBench(db *rules.DB, dir string, cfg extract.Config) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "bench dir:", err)
@@ -101,7 +103,7 @@ func runBench(db *rules.DB, dir string) {
 		}
 		files++
 		start := time.Now()
-		engine.InspectFile(path, db, extract.Config{})
+		engine.InspectFile(path, db, cfg)
 		durs = append(durs, time.Since(start))
 	}
 	if len(durs) == 0 {

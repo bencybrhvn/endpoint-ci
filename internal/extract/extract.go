@@ -16,30 +16,58 @@ import (
 )
 
 type Config struct {
-	MaxBytes int // cap on extracted text (default 5 MB)
+	MaxBytes       int // cap on extracted text (default 5 MB)
+	MaxFileBytes   int // size gate: above this, only head+tail are inspected (default 16 MB)
+	HeadTailWindow int // bytes per head/tail window when the gate trips (default 64 KB)
 }
 
 type Result struct {
 	Type      format.Type
 	Text      string
-	Truncated bool
+	Truncated bool   // hit MaxBytes
+	Partial   bool   // size gate: only head+tail inspected, middle skipped
 	Err       string // non-empty on extraction failure
 }
 
-const defaultMaxBytes = 5 << 20
+const (
+	defaultMaxBytes       = 5 << 20
+	defaultMaxFileBytes   = 16 << 20
+	defaultHeadTailWindow = 64 << 10
+)
 
-// Extract detects the format of data and returns its inspectable text.
+// gapMarker separates the head and tail windows. Deliberately keyword-free so it
+// can't create a false match.
+const gapMarker = "\n\n[--- size gate: middle of file not inspected ---]\n\n"
+
+// Extract detects the format of data and returns its inspectable text. Files
+// larger than the size gate are reduced to their head + tail windows (Partial),
+// so cost is bounded regardless of file size; the caller treats partial coverage
+// as inconclusive (escalate if otherwise clean).
 func Extract(data []byte, cfg Config) Result {
 	max := cfg.MaxBytes
 	if max == 0 {
 		max = defaultMaxBytes
+	}
+	gate := cfg.MaxFileBytes
+	if gate == 0 {
+		gate = defaultMaxFileBytes
+	}
+	win := cfg.HeadTailWindow
+	if win == 0 {
+		win = defaultHeadTailWindow
 	}
 	t := format.Detect(data)
 	r := Result{Type: t}
 
 	switch t {
 	case format.Plaintext:
-		r.Text = string(data)
+		// Apply the gate on the raw bytes so we never build a huge string.
+		if gate > 0 && len(data) > gate {
+			r.Text = headTail(string(data[:win]), string(data[len(data)-win:]))
+			r.Partial = true
+		} else {
+			r.Text = string(data)
+		}
 	case format.DOCX, format.XLSX, format.PPTX:
 		txt, err := extractOOXML(data, t)
 		if err != nil {
@@ -62,12 +90,19 @@ func Extract(data []byte, cfg Config) Result {
 		return r
 	}
 
+	// Size gate on extracted text (OOXML/PDF) once it's built.
+	if !r.Partial && gate > 0 && len(r.Text) > gate {
+		r.Text = headTail(r.Text[:win], r.Text[len(r.Text)-win:])
+		r.Partial = true
+	}
 	if len(r.Text) > max {
 		r.Text = r.Text[:max]
 		r.Truncated = true
 	}
 	return r
 }
+
+func headTail(head, tail string) string { return head + gapMarker + tail }
 
 // --- OOXML ---
 

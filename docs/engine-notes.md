@@ -31,6 +31,21 @@ file → detect format (magic bytes)
     crashes the caller (spec §10 fail-gracefully).
 - Extracted text is capped (default 5 MB) and flagged `truncated`.
 
+### Size gate + head/tail extraction (spec §4.3)
+
+Files above the **size gate** (`MaxFileBytes`, default 16 MB; CLI `--max-file-mb`)
+are reduced to their **head + tail windows** (`HeadTailWindow`, default 64 KB each)
+— the middle is not inspected, so cost is bounded regardless of file size. For
+plaintext the gate is applied on the raw bytes (we never build a huge string).
+The result is flagged `Partial`.
+
+**Coverage-aware verdict:** partial (or truncated) extraction means a clean
+result is only "clean for what we saw", so the engine **escalates instead of
+ALLOWing** — the unseen middle isn't silently passed. A profile/label that *does*
+fire in the head/tail still BLOCKs. (Demo: a 21 MB clean file with a 1 MB gate →
+131 KB inspected, ESCALATE, ~18 ms.) The metadata label fast-path always runs on
+the full container (docProps are tiny), so labels are caught even under the gate.
+
 ### Sensitivity-label fast-path (spec §4.5)
 
 `internal/label` detects classification labels:
