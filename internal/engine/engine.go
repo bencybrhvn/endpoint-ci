@@ -84,9 +84,27 @@ func orderByPriority(dets []*rules.Detector) []*rules.Detector {
 	return out
 }
 
+// profileDisposition is a matched profile's effective verdict: confidence vs the
+// block threshold, then capped by the profile's configured verdict_on_match
+// ceiling (e.g. EMAIL caps at ESCALATE so a lone address never hard-BLOCKs).
+func profileDisposition(m profile.Match, threshold int) string {
+	d := Escalate
+	if m.Confidence >= threshold {
+		d = Block
+	}
+	ceiling := m.Verdict
+	if ceiling == "" {
+		ceiling = Block
+	}
+	if severity(d) > severity(ceiling) {
+		d = ceiling
+	}
+	return d
+}
+
 func hasBlock(matches []profile.Match, threshold int) bool {
 	for _, m := range matches {
-		if m.Confidence >= threshold {
+		if profileDisposition(m, threshold) == Block {
 			return true
 		}
 	}
@@ -215,19 +233,12 @@ func Inspect(file, text string, db *rules.DB) Verdict {
 		v.Detectors = append(v.Detectors, DetectorFinding{r.ID, r.Name, r.RawCount, r.ValidatedCount, r.Confidence})
 	}
 
-	// Disposition:
-	//   BLOCK    if any profile matched with confidence >= block_threshold
-	//   ESCALATE if a profile matched but only below block_threshold (uncertain)
-	//   ALLOW    otherwise (incl. detector findings that form no profile)
+	// Disposition = most severe across matched profiles, where each profile's
+	// verdict is its confidence-vs-threshold result capped by its configured
+	// verdict_on_match ceiling. ALLOW if no profile matched.
 	v.Disposition = Allow
-	if len(matches) > 0 {
-		v.Disposition = Escalate
-		for _, m := range matches {
-			if m.Confidence >= db.Conf.BlockThreshold {
-				v.Disposition = Block
-				break
-			}
-		}
+	for _, m := range matches {
+		v.Disposition = upgrade(v.Disposition, profileDisposition(m, db.Conf.BlockThreshold))
 	}
 
 	// Body-text sensitivity labels (distinctive markings) → at least ESCALATE.

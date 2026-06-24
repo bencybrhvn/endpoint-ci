@@ -79,7 +79,7 @@
     ]
   },
   "email_only.txt": {
-    "verdict": "BLOCK",
+    "verdict": "ESCALATE",
     "profiles": [
       "EMAIL"
     ]

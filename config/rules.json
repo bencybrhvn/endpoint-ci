@@ -1354,7 +1354,7 @@
       "profile_id": "EMAIL",
       "profile_name": "Email Address",
       "data_type": "DT_PII_Personal_Data",
-      "verdict_on_match": "BLOCK",
+      "verdict_on_match": "ESCALATE",
       "match": {
         "op": "detector",
         "id": "email"
