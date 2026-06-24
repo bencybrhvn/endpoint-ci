@@ -46,6 +46,19 @@ Each entry: **Context** (why) · **Decision** (what) · **Alternatives** · **Co
 
 ---
 
+## 2026-06-24 — Extraction: stdlib for OOXML, ledongthuc/pdf for PDF
+
+**Context:** The engine needs to inspect real documents (DOCX/XLSX/PPTX/PDF), not just plaintext. The spec's C design used miniz + MuPDF.
+
+**Decision:** OOXML via the Go standard library (`archive/zip` + a tag-stripping pass over the text-bearing parts) — no third-party dep. PDF text layer via `github.com/ledongthuc/pdf` (pure Go, MIT) — the one external dependency, chosen over cgo/MuPDF to keep the PoC a single static binary.
+
+**Consequences:**
+- OOXML extraction is dependency-free and fast.
+- PDF text extraction covers standard text-layer PDFs; it won't handle scanned/OCR, complex CMaps, or encrypted PDFs — those degrade to ESCALATE. `ledongthuc/pdf` can panic on malformed input, so the extractor wraps it in a recover and fails to ESCALATE, never crashing.
+- Encrypted/legacy OLE files (`D0 CF 11 E0`) are detected and ESCALATEd, not parsed (spec scope excludes them).
+
+---
+
 ## 2026-06-24 — Open: negative-lookahead PII patterns
 
 **Context:** The spec's sample SSN pattern uses negative lookaheads `(?!000|666|9\d{2})`, which strict RE2 (and Go `regexp`) reject.

@@ -2,9 +2,11 @@
 package engine
 
 import (
+	"os"
 	"sort"
 	"time"
 
+	"github.com/cyberhaven/endpoint-ci/internal/extract"
 	"github.com/cyberhaven/endpoint-ci/internal/profile"
 	"github.com/cyberhaven/endpoint-ci/internal/rules"
 	"github.com/cyberhaven/endpoint-ci/internal/scan"
@@ -21,7 +23,10 @@ type Verdict struct {
 	File        string            `json:"file"`
 	Disposition string            `json:"verdict"`
 	ScanPath    string            `json:"scan_path"`
+	FileType    string            `json:"file_type"`
 	BytesSeen   int               `json:"bytes_seen"`
+	Truncated   bool              `json:"truncated,omitempty"`
+	Note        string            `json:"note,omitempty"`
 	ScanMicros  int64             `json:"scan_duration_us"`
 	Profiles    []profile.Match   `json:"profiles"`
 	Detectors   []DetectorFinding `json:"detectors"`
@@ -33,6 +38,25 @@ type DetectorFinding struct {
 	RawCount       int    `json:"raw_count"`
 	ValidatedCount int    `json:"validated_count"`
 	Confidence     int    `json:"confidence"`
+}
+
+// InspectFile reads a file, detects its format, extracts text, then inspects.
+// Extraction failure (encrypted/unsupported/corrupt) degrades to ESCALATE.
+func InspectFile(path string, db *rules.DB, cfg extract.Config) (Verdict, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Verdict{}, err
+	}
+	res := extract.Extract(data, cfg)
+	if res.Err != "" {
+		return Verdict{File: path, ScanPath: "local", FileType: res.Type.String(),
+			BytesSeen: len(data), Disposition: Escalate,
+			Note: "extraction failed, escalate: " + res.Err}, nil
+	}
+	v := Inspect(path, res.Text, db)
+	v.FileType = res.Type.String()
+	v.Truncated = res.Truncated
+	return v, nil
 }
 
 // Inspect runs detectors + profiles over text and builds a verdict.

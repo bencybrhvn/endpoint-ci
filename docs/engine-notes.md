@@ -6,11 +6,31 @@ verdicts — it never enacts blocking.
 ## Pipeline
 
 ```
-file → scan (27 leaf detectors: regex + dictionary)
+file → detect format (magic bytes)
+     → extract text (plaintext direct · OOXML via archive/zip · PDF text layer)
+     → scan (27 leaf detectors: regex + dictionary)
      → confidence model (base +validator +keyword +instances)
      → profile evaluation (and/or/min/min_validated over fired detectors)
      → verdict: BLOCK / ESCALATE / ALLOW
 ```
+
+## Extraction layer
+
+- **Format detection** (`internal/format`) — magic bytes: `%PDF` → PDF; `PK\x03\x04`
+  → inspect ZIP entries for DOCX/XLSX/PPTX; `D0CF11E0` (OLE) → encrypted/legacy;
+  valid UTF-8 with no NULs → plaintext.
+- **Extraction** (`internal/extract`):
+  - *OOXML* — `archive/zip` over the text-bearing parts (`word/document.xml`,
+    headers/footers, `xl/sharedStrings.xml`, `ppt/slides/*`, doc properties) +
+    a tag-stripping pass. Stdlib only.
+  - *PDF* — text layer via `ledongthuc/pdf` (pure Go), wrapped in a recover.
+  - Encrypted/legacy/unsupported/parse failure → **ESCALATE** with a note; never
+    crashes the caller (spec §10 fail-gracefully).
+- Extracted text is capped (default 5 MB) and flagged `truncated`.
+
+Verified end to end (`go test`): `hipaa.docx`→PHI/PII, `pci.xlsx`→PCI/Financial,
+`financial.pptx`→Financial, `pii.pdf`→US_PII, `clean.docx`→ALLOW,
+`legacy.doc` (OLE)→ESCALATE.
 
 Packages: `internal/rules` (load + RE2 compat classify + per-detector pattern
 combine), `internal/validators` (luhn/iban/aba/vin/ssn/ein/npi/dea),

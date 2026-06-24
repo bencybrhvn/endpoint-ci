@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cyberhaven/endpoint-ci/internal/extract"
 	"github.com/cyberhaven/endpoint-ci/internal/rules"
 )
 
@@ -67,6 +68,49 @@ func TestCorpus(t *testing.T) {
 						have = append(have, p.ProfileID)
 					}
 					t.Errorf("missing profile %s (got %s)", wp, strings.Join(have, ","))
+				}
+			}
+		})
+	}
+}
+
+// TestDocuments exercises the extraction layer (OOXML, PDF, encrypted) end to end.
+func TestDocuments(t *testing.T) {
+	db := loadDB(t)
+	cases := []struct {
+		file    string
+		verdict string
+		profile string // one required profile ("" = none)
+	}{
+		{"hipaa.docx", Block, "PHI_HIPAA"},
+		{"clean.docx", Allow, ""},
+		{"pci.xlsx", Block, "PCI"},
+		{"financial.pptx", Block, "FINANCIAL"},
+		{"pii.pdf", Block, "US_PII"},
+		{"legacy.doc", Escalate, ""}, // OLE: extraction fails -> escalate
+	}
+	for _, c := range cases {
+		t.Run(c.file, func(t *testing.T) {
+			path := filepath.Join("testdata/docs", c.file)
+			if _, err := os.Stat(path); err != nil {
+				t.Skipf("missing fixture %s", path)
+			}
+			v, err := InspectFile(path, db, extract.Config{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if v.Disposition != c.verdict {
+				t.Errorf("%s: verdict = %s, want %s", c.file, v.Disposition, c.verdict)
+			}
+			if c.profile != "" {
+				found := false
+				for _, p := range v.Profiles {
+					if p.ProfileID == c.profile {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("%s: missing profile %s", c.file, c.profile)
 				}
 			}
 		})

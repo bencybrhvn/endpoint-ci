@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/cyberhaven/endpoint-ci/internal/engine"
+	"github.com/cyberhaven/endpoint-ci/internal/extract"
 	"github.com/cyberhaven/endpoint-ci/internal/rules"
 )
 
@@ -37,12 +38,11 @@ func main() {
 	case *bench != "":
 		runBench(db, *bench)
 	case *file != "":
-		b, err := os.ReadFile(*file)
+		v, err := engine.InspectFile(*file, db, extract.Config{})
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "read file:", err)
+			fmt.Fprintln(os.Stderr, "inspect file:", err)
 			os.Exit(1)
 		}
-		v := engine.Inspect(*file, string(b), db)
 		out, _ := json.MarshalIndent(v, "", "  ")
 		fmt.Println(string(out))
 	default:
@@ -95,15 +95,13 @@ func runBench(db *rules.DB, dir string) {
 		if e.IsDir() || filepath.Ext(e.Name()) == ".json" {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
-		if err != nil {
-			continue
+		path := filepath.Join(dir, e.Name())
+		if fi, err := os.Stat(path); err == nil {
+			totalBytes += int(fi.Size())
 		}
 		files++
-		totalBytes += len(b)
-		text := string(b)
 		start := time.Now()
-		engine.Inspect(e.Name(), text, db)
+		engine.InspectFile(path, db, extract.Config{})
 		durs = append(durs, time.Since(start))
 	}
 	if len(durs) == 0 {

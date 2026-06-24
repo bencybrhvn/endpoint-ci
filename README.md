@@ -43,18 +43,22 @@ go test -bench=. -benchmem ./...
 ## Layout
 
 ```
-cmd/ch-inspect/   CLI entrypoint
+cmd/ch-inspect/   CLI entrypoint (--file / --report / --bench)
 internal/
-  rules/          rule loading + RE2 compatibility classification + report
+  rules/          rule loading + RE2 compatibility classification
   format/         magic-byte format detection
-  extract/        text extraction per file type
-  scan/           multi-pattern regex scan → dataset_id/rule_id matches
-  validators/     luhn, iban (mod-97), aba
-  label/          label / sensitivity-marker detection
-  verdict/        ALLOW/BLOCK/ESCALATE builder + JSON output
-testdata/corpus/  synthetic sample files (NO real PII)
-docs/             design & consistency notes
+  extract/        text extraction (plaintext, OOXML via zip, PDF text layer)
+  scan/           leaf detector scan + confidence model
+  validators/     luhn, iban (mod-97), aba, vin, ssn, ein, npi, dea
+  profile/        profile composition evaluator
+  engine/         pipeline orchestration + verdict
+testdata/corpus/  synthetic text samples (NO real PII)
+testdata/docs/    synthetic DOCX/XLSX/PPTX/PDF fixtures
+config/           rules.json + lexicons
+docs/             design & engine notes
 ```
+
+Sole third-party dependency: `github.com/ledongthuc/pdf` (pure-Go PDF text). OOXML uses the standard library only.
 
 ## Deliverables
 
