@@ -153,6 +153,40 @@ Throughput ≈ **17 MB/s** (was 2.8 MB/s before optimisation):
   still cost N scans; a true vectorised matcher (Hyperscan) is the production path.
 - Size gate + head/tail extraction for very large files (spec `ExtractConfig`).
 
+## Real-world profiling (`--scan`) + robustness findings
+
+`ch-inspect --scan <dir>` recursively profiles real files: latency percentiles,
+throughput, verdict + file-type breakdowns, slowest files, heap + peak RSS, optional
+`--cpuprofile`/`--memprofile`/`--csv`. Dot-dirs are skipped by default.
+
+Run against a labelled policy test corpus (**3,735 files / 529 MB**):
+- **Latency** p50 758µs, p95 3.3ms, p99 18ms — well within budget (the headline
+  mean/max are skewed by isolated-timeout files, below).
+- **Parent peak RSS 17.5 MB.**
+- **Accuracy** (vs `Matches`/`NonMatches` ground truth): ~100% recall on the data
+  types we implement (Credit_Card, Canada_SIN, SWIFT, FR/ES/IT/CA PII…); overall
+  recall is lower only because the corpus spans ~all policies incl. ~22 types we
+  don't implement (medical diagnoses, Australia TFN/IHI, AML…).
+
+### Finding 1 — single-signal types don't BLOCK (by design)
+`IP_Address`-only / email-only files scored 0% detection: the detector fires but no
+*profile* is satisfied by one weak signal (profiles need ≥2 distinct or a strong ID).
+Add a standalone profile per type if lone IP/email should block.
+
+### Finding 2 — PDF parsing is a DoS risk on untrusted input
+~24 of 1,457 PDFs drove `ledongthuc` to **multi-GB live allocation** (one hit 9.5 GB),
+OOM-killing the process. `GOMEMLIMIT` did **not** help (allocations are live). In-process
+mitigations (output `LimitReader`, recover) don't stop it. **Mitigation: process
+isolation.** `--scan --isolate` (default on) inspects each file in a child process with
+an **RSS cap + timeout watchdog**; a bomb only kills the child (recorded ESCALATE),
+parent stays at ~17 MB. This mirrors the production requirement to sandbox untrusted
+text extraction (the spec's stripped-down MuPDF build). Per-file scan latency is still
+read from the child's JSON, so the numbers stay accurate.
+
+### Behaviour: unsupported vs encrypted
+A plain unsupported/binary type (image, exe) → **ALLOW** (no text to inspect, not our
+content). Only *encrypted*/corrupt (likely a doc we can't read) → **ESCALATE**.
+
 ## Notes / divergences from the illustrative spec corpus
 - We have **no standalone Email/SSN datasets** — those roll into profiles. A pure
   email list therefore ALLOWs (no profile needs a single email). This is by design

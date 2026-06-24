@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cyberhaven/endpoint-ci/internal/extract"
+	"github.com/cyberhaven/endpoint-ci/internal/format"
 	"github.com/cyberhaven/endpoint-ci/internal/label"
 	"github.com/cyberhaven/endpoint-ci/internal/profile"
 	"github.com/cyberhaven/endpoint-ci/internal/rules"
@@ -106,11 +107,17 @@ func InspectFile(path string, db *rules.DB, cfg extract.Config) (Verdict, error)
 	// caught. Metadata labels are machine-written → authoritative → BLOCK.
 	meta := label.Metadata(data, res.Type, db.LabelMarkers)
 
-	// Extraction failed (encrypted / corrupt / unsupported): no body to scan.
+	// No body to scan. Distinguish:
+	//   - unsupported/binary type → ALLOW (nothing to inspect; not our content)
+	//   - encrypted / corrupt     → ESCALATE (likely a doc we just can't read)
+	// A metadata label still BLOCKs in either case.
 	if res.Err != "" {
+		disp, note := Escalate, "extraction failed, escalate: "+res.Err
+		if res.Type == format.Unsupported {
+			disp, note = Allow, "unsupported/binary type — not content-inspected"
+		}
 		v := Verdict{File: path, ScanPath: "local", FileType: res.Type.String(),
-			BytesSeen: len(data), Disposition: Escalate, Labels: meta,
-			Note: "extraction failed, escalate: " + res.Err}
+			BytesSeen: len(data), Disposition: disp, Labels: meta, Note: note}
 		if len(meta) > 0 {
 			v.Disposition = Block
 			v.Note = "sensitivity label present in metadata (body not extractable)"

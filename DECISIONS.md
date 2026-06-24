@@ -46,6 +46,20 @@ Each entry: **Context** (why) · **Decision** (what) · **Alternatives** · **Co
 
 ---
 
+## 2026-06-24 — Real-world profiler + PDF DoS isolation
+
+**Context:** Profiling against real files (a 3,735-file labelled policy corpus) to measure latency/impact surfaced a serious robustness issue.
+
+**Findings & decisions:**
+- **`--scan` profiler** added: recursive, latency percentiles, throughput, verdict/type breakdowns, slowest files, heap + peak RSS, `--csv`/`--cpuprofile`/`--memprofile`; dot-dirs skipped by default.
+- **PDF DoS:** ~24/1,457 PDFs made `ledongthuc` allocate multi-GB *live* memory (peak 9.5 GB) → OOM. `GOMEMLIMIT` didn't help; in-process guards can't stop it. **Decision: process isolation** — `--scan --isolate` (default on) runs each file in a child with an RSS cap + timeout watchdog; a bomb only kills the child (→ ESCALATE), parent stays ~17 MB. Production must sandbox untrusted PDF/text extraction (separate process / resource-limited build), as the spec's controlled-MuPDF approach implied.
+- **Unsupported vs encrypted:** plain binary/unsupported types → **ALLOW** (no text, not our content); only encrypted/corrupt → **ESCALATE**. (Previously everything unreadable escalated, which floods on real machines.)
+- **Single-signal types:** lone IP/email don't BLOCK (no profile for one weak signal) — documented; add a standalone profile if needed.
+
+**Consequences:** the engine can safely profile arbitrary real files. Accuracy on implemented data types is ~100% recall on the corpus; lower overall only because the corpus spans policies outside MVP scope.
+
+---
+
 ## 2026-06-24 — Size gate + head/tail extraction
 
 **Context:** A multi-MB/GB file shouldn't be fully inspected inline on the endpoint hot path (spec §4.3).

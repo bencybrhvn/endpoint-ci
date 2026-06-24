@@ -199,8 +199,12 @@ func extractPDF(data []byte) (text string, err error) {
 		return "", fmt.Errorf("pdf text: %w", err)
 	}
 	var sb strings.Builder
-	if _, err := io.Copy(&sb, rd); err != nil {
+	// Bound the extracted text so a decompression-bomb PDF can't exhaust memory.
+	if _, err := io.Copy(&sb, io.LimitReader(rd, pdfTextCap)); err != nil {
 		return "", fmt.Errorf("pdf read: %w", err)
 	}
 	return sb.String(), nil
 }
+
+// pdfTextCap bounds PDF text-layer output (defends against bomb PDFs).
+const pdfTextCap = 32 << 20

@@ -34,6 +34,20 @@ go run ./cmd/ch-inspect --rules rules.json --report               # rule compati
 go run ./cmd/ch-inspect --rules rules.json --bench ./testdata/corpus   # latency p50/p95/p99
 ```
 
+### Profile against your own files (real-world impact)
+
+```bash
+go build -o ch-inspect ./cmd/ch-inspect        # build a real binary (don't time `go run`)
+./ch-inspect --rules config/rules.json --scan ~/Documents --top 15
+# options: --max-read-mb (skip huge files) --max-files N --csv out.csv
+#          --include-hidden  --cpuprofile cpu.out  --memprofile mem.out
+```
+
+`--scan` recursively inspects every regular file and reports latency
+percentiles, throughput, verdict + file-type breakdowns, the slowest files, and
+process memory (heap + peak RSS). Dot-directories (`.git`, …) are skipped by
+default. Add `--cpuprofile`/`--memprofile` then `go tool pprof <file>` for hotspots.
+
 ### Test & Benchmark
 ```bash
 go test ./...
