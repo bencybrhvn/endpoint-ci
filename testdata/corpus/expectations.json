@@ -1,0 +1,57 @@
+{
+  "pci_card.txt": {
+    "verdict": "BLOCK",
+    "profiles": [
+      "PCI",
+      "FINANCIAL"
+    ]
+  },
+  "card_invalid_luhn.txt": {
+    "verdict": "ALLOW",
+    "profiles": []
+  },
+  "ssn_context.txt": {
+    "verdict": "BLOCK",
+    "profiles": [
+      "US_PII"
+    ]
+  },
+  "ssn_nocontext.txt": {
+    "verdict": "ESCALATE",
+    "profiles": [
+      "US_PII"
+    ]
+  },
+  "financial_iban.txt": {
+    "verdict": "BLOCK",
+    "profiles": [
+      "FINANCIAL"
+    ]
+  },
+  "pii_multi.txt": {
+    "verdict": "BLOCK",
+    "profiles": [
+      "US_PII"
+    ]
+  },
+  "hipaa.txt": {
+    "verdict": "BLOCK",
+    "profiles": [
+      "PHI_HIPAA"
+    ]
+  },
+  "secrets.txt": {
+    "verdict": "BLOCK",
+    "profiles": [
+      "SECRETS"
+    ]
+  },
+  "names_only.txt": {
+    "verdict": "ALLOW",
+    "profiles": []
+  },
+  "clean.txt": {
+    "verdict": "ALLOW",
+    "profiles": []
+  }
+}

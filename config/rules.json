@@ -9,7 +9,7 @@
     "max_instance_boosts": 3,
     "keyword_window": 200,
     "default_fire_threshold": 50,
-    "block_threshold": 85
+    "block_threshold": 65
   },
   "validators": {
     "luhn_check": "Luhn mod-10 (strip non-digits first)",
@@ -54,6 +54,7 @@
       "validators": ["aba_checksum"],
       "keywords": ["routing", "aba", "rtn", "transit", "wire"],
       "base_confidence": 40,
+      "best_effort": true,
       "notes": "9 digits is generic; checksum + keyword context required to fire."
     },
     {

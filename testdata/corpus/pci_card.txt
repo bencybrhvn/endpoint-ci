@@ -1,0 +1,3 @@
+Invoice #4471 — customer payment on file.
+Charge the credit card 4111111111111111 (Visa).
+Backup card 5500005555555559 for recurring billing.

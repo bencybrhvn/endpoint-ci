@@ -1,0 +1,28 @@
+endpoint-ci — benchmark results
+Generated on a developer laptop (darwin/arm64), Go go1.26.1.
+Engine: pure-Go regexp (RE2), 27 detectors, 5 profiles, per-detector scan.
+
+== Corpus (small synthetic files) ==
+Benchmark over 10 files (1341 bytes total)
+  mean: 110.691µs
+  p50:  88.75µs
+  p95:  154.292µs
+  p99:  154.292µs
+  max:  181.333µs
+
+== go test benchmarks ==
+BenchmarkInspect500K-14    	       6	 185628340 ns/op	   2.76 MB/s	 9078732 B/op	  105344 allocs/op
+BenchmarkInspect8K-14      	     409	   2876206 ns/op	   2.85 MB/s	  157011 B/op	    1807 allocs/op
+
+== Budget assessment (spec: <100ms for files <=500KB) ==
+  Throughput ~2.8 MB/s.
+  Typical files (<=8KB): ~3ms  -> WELL WITHIN budget.
+  500KB worst case:      ~185ms -> ~1.8x OVER the 100ms target.
+
+  Finding: at 500KB the per-detector regex sweep (each detector scans the
+  whole buffer) exceeds the latency target. Optimisation path:
+   - a true multi-pattern matcher that returns per-pattern matches without
+     stealing (Hyperscan/Vectorscan, or RE2::Set for membership pre-filter)
+   - reduce overlapping generic-numeric detectors
+   - cap match enumeration once a profile is already satisfied
+   - head/tail extraction + size gate for very large files (spec ExtractConfig)

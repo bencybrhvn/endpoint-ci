@@ -1,0 +1,33 @@
+Rule compilation report
+  Detectors:        27
+  LOCAL_CAPABLE:    27
+  CLOUD_ONLY:       0
+  Profiles:         5
+
+  credit_card      LOCAL_CAPABLE  regex    patterns=1 validators=[luhn_check]
+  iban             LOCAL_CAPABLE  regex    patterns=1 validators=[iban_mod97]
+  aba_routing      LOCAL_CAPABLE  regex    patterns=1 validators=[aba_checksum]
+  swift_bic        LOCAL_CAPABLE  regex    patterns=1 validators=[]
+  bank_account     LOCAL_CAPABLE  regex    patterns=1 validators=[]
+  email            LOCAL_CAPABLE  regex    patterns=1 validators=[]
+  ip_address       LOCAL_CAPABLE  regex    patterns=3 validators=[]
+  phone            LOCAL_CAPABLE  regex    patterns=2 validators=[]
+  date_of_birth    LOCAL_CAPABLE  regex    patterns=3 validators=[]
+  postal_address   LOCAL_CAPABLE  regex    patterns=1 validators=[]
+  person_name      LOCAL_CAPABLE  dictionary patterns=1 validators=[]
+  url              LOCAL_CAPABLE  regex    patterns=1 validators=[]
+  vin              LOCAL_CAPABLE  regex    patterns=1 validators=[vin_check]
+  us_ssn           LOCAL_CAPABLE  regex    patterns=1 validators=[ssn_check]
+  us_ein           LOCAL_CAPABLE  regex    patterns=1 validators=[ein_prefix]
+  us_passport      LOCAL_CAPABLE  regex    patterns=2 validators=[]
+  uk_nino          LOCAL_CAPABLE  regex    patterns=1 validators=[]
+  uk_passport      LOCAL_CAPABLE  regex    patterns=1 validators=[]
+  uk_utr           LOCAL_CAPABLE  regex    patterns=1 validators=[]
+  mrn              LOCAL_CAPABLE  regex    patterns=2 validators=[]
+  us_npi           LOCAL_CAPABLE  regex    patterns=1 validators=[npi_check]
+  us_dea           LOCAL_CAPABLE  regex    patterns=1 validators=[dea_check]
+  icd10            LOCAL_CAPABLE  regex    patterns=1 validators=[]
+  health_insurance LOCAL_CAPABLE  regex    patterns=1 validators=[]
+  api_key          LOCAL_CAPABLE  regex    patterns=5 validators=[]
+  private_key      LOCAL_CAPABLE  regex    patterns=1 validators=[]
+  jwt              LOCAL_CAPABLE  regex    patterns=1 validators=[]

@@ -1,0 +1,4 @@
+Clinic intake note.
+Patient: Dr Jane Smith. DOB 03/22/1970.
+SSN 123-45-6789. Provider NPI 1234567893.
+Working diagnosis E11.9 (type 2 diabetes).

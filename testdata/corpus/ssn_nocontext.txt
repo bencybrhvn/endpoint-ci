@@ -1,0 +1,2 @@
+Spreadsheet export row 42: reference value 123-45-6789 appears once.
+No other structured fields in this extract.
