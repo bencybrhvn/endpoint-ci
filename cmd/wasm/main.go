@@ -40,24 +40,47 @@ func loadRules(_ js.Value, args []js.Value) any {
 	return map[string]any{"detectors": len(d.Detectors), "profiles": len(d.Profiles)}
 }
 
-// chInspect(name, Uint8Array) -> verdict JSON
+// chInspect(name, Uint8Array) -> Promise<verdict JSON>.
+//
+// Returns a Promise and does the work on a goroutine: while inspection runs, the
+// JS event loop stays live, so any blocking syscall the engine/deps make (e.g. a
+// PDF library writing to stdout) can complete instead of deadlocking the
+// single-threaded WASM scheduler.
 func inspect(_ js.Value, args []js.Value) any {
+	resolveErr := func(msg string) any {
+		return js.Global().Get("Promise").Call("resolve", `{"verdict":"ESCALATE","error":"`+msg+`"}`)
+	}
 	if db == nil {
-		return `{"error":"rules not loaded; call chLoadRules first"}`
+		return resolveErr("rules not loaded; call chLoadRules first")
 	}
 	if len(args) < 2 {
-		return `{"error":"expected (name, Uint8Array)"}`
+		return resolveErr("expected (name, Uint8Array)")
 	}
 	name := args[0].String()
 	buf := make([]byte, args[1].Get("length").Int())
 	js.CopyBytesToGo(buf, args[1])
 
-	v := engine.InspectData(name, buf, db, extract.Config{})
-	out, err := json.Marshal(v)
-	if err != nil {
-		return `{"error":"marshal failed"}`
-	}
-	return string(out)
+	var executor js.Func
+	executor = js.FuncOf(func(_ js.Value, p []js.Value) any {
+		resolve := p[0]
+		go func() {
+			defer executor.Release()
+			defer func() {
+				if r := recover(); r != nil {
+					resolve.Invoke(`{"verdict":"ESCALATE","error":"panic during inspect"}`)
+				}
+			}()
+			v := engine.InspectData(name, buf, db, extract.Config{})
+			out, err := json.Marshal(v)
+			if err != nil {
+				resolve.Invoke(`{"verdict":"ESCALATE","error":"marshal failed"}`)
+				return
+			}
+			resolve.Invoke(string(out))
+		}()
+		return nil
+	})
+	return js.Global().Get("Promise").New(executor)
 }
 
 func main() {

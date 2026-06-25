@@ -62,10 +62,19 @@ headlessly via Node (correct verdicts for txt/docx/pdf).
 profiler, not the engine. Output ~5.2 MB raw / 1.5 MB gzipped.
 
 **Consequences / constraints:** single-threaded in-browser (`NumCPU`→1; parallel
-scan is a no-op, fine for small files). The PDF DoS has no in-process fix and no
-subprocess in a browser — **run the WASM in a Web Worker and terminate on timeout**
-(the worker is the isolation boundary). Rules stay external (fetched by JS), keeping
+scan is a no-op, fine for small files). Rules stay external (fetched by JS), keeping
 them tunable. Build artifacts are git-ignored; `web/build.sh` regenerates them.
+
+**2026-06-24 update — Web Worker isolation (implemented):** the engine now runs in a
+Web Worker (`web/worker.js`); the page inspects each file with a timeout and
+**terminates + respawns the worker** on overrun — the browser equivalent of per-file
+process isolation for the PDF DoS. Required making `chInspect` **async (return a
+Promise)**: a synchronous JS→WASM call never yields to the event loop, so a blocking
+syscall inside it (e.g. `ledongthuc/pdf`'s unconditional `DEBUG` stdout write)
+deadlocks Go's single-threaded WASM scheduler. Verified: full Nucleuz corpus incl.
+all 1,457 PDFs completes (~142 s); the 24 memory-bomb PDFs are isolated rather than
+OOM-crashing; 99.7% verdict parity with native (the ~0.3% are slow PDFs the tight
+1.5 s worker timeout isolated but native finished at 8 s).
 
 ---
 

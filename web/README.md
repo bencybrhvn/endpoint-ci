@@ -21,8 +21,15 @@ you get the verdict, profiles, labels, and scan time.
 - `cmd/wasm/main.go` (`//go:build js && wasm`) exposes two functions to JS via
   `syscall/js`:
   - `chLoadRules(rulesJSON, givenNames, surnames, commonWords)` → `{detectors, profiles}`
-  - `chInspect(name, Uint8Array)` → verdict JSON
-- `build.sh` stages `config/rules.json` + lexicons next to the page; `index.html`
+  - `chInspect(name, Uint8Array)` → **`Promise`**<verdict JSON> (async, so the JS
+    event loop stays live while the engine runs — required in WASM)
+- The engine runs inside `worker.js` (a **Web Worker**). The page (`index.html`)
+  posts each file to the worker with a timeout; if the worker doesn't answer in time
+  (a hang or a memory-bomb file), the page **terminates the worker** — the browser
+  reclaims its memory — marks the file `ESCALATE` (isolated), and **respawns** a
+  fresh worker. This is the in-browser equivalent of the CLI's per-file process
+  isolation.
+- `build.sh` stages `config/rules.json` + lexicons next to the page; the worker
   fetches them and calls `chLoadRules`, then `chInspect` per file.
 - The core engine is unchanged — `rules.LoadBytes` and `engine.InspectData` are the
   filesystem-free entrypoints the WASM layer calls.
@@ -33,22 +40,30 @@ the commit, or just open the page.
 
 ## Verified
 
-Run against the Nucleuz policy test corpus through the WASM build (via a headless
-Node harness), **non-PDF subset = 2,276 files**:
-- **Verdict parity with native: 2,276 / 2,276 (0 disagreements)** — the WASM build
-  is logically identical to the native engine.
-- WASM latency: p50 ~2.8 ms, p95 ~25 ms (≈3–5× slower than native — single-threaded,
-  no parallel scan; still interactive).
-- PDFs (1,457) were **not** run in-process: a bomb PDF OOMs a single JS runtime, so
-  the full set needs the Web-Worker isolation below.
+Two runs against the Nucleuz policy test corpus through the WASM build (headless
+Node harnesses mirroring the browser model):
+
+1. **Logic parity (non-PDF, 2,276 files):** verdicts **2,276 / 2,276 identical to
+   native** — the WASM build is logically the same engine.
+2. **Full corpus incl. all PDFs (3,733 files), via the Web-Worker isolation model:**
+   completed in ~142 s; the **24 memory-bomb PDFs were isolated** (terminated on a
+   1.5 s timeout + worker respawned) instead of OOM-crashing the run; verdict parity
+   **3,722 / 3,733 (99.7%)**. The 11 differences are slow PDFs the tight 1.5 s worker
+   timeout isolated but native finished at its 8 s limit — a timeout-policy
+   difference, not a logic one.
+
+WASM latency: p50 ~3 ms, p95 ~28 ms (≈3–5× native — single-threaded, no parallel
+scan; still interactive).
 
 ## Production notes
 
-- **Run the WASM in a Web Worker** and terminate it on a timeout. A malicious PDF
-  can drive the pure-Go PDF parser to high memory — in the browser the worker is the
-  isolation boundary (the equivalent of the per-file process isolation used by the
-  CLI `--scan`). Enforce the size gate and consider capping/disabling PDF in-page.
-- WASM is single-threaded here (`NumCPU`→1), so the parallel scan doesn't speed up —
-  fine, files are small (sub-millisecond to a few ms each).
+- The **Web Worker is the isolation boundary** (implemented in `worker.js` +
+  `index.html`). Tune the timeout for your environment; the size gate still bounds
+  large files, and you may also cap/disable PDF in-page for stricter safety.
+- WASM is single-threaded (`NumCPU`→1), so the parallel scan doesn't speed up —
+  fine, files are small (a few ms each).
+- `ledongthuc/pdf` prints an unconditional `DEBUG:` line on some malformed PDFs; in
+  WASM that surfaces as harmless `console.log` noise (the async `chInspect` keeps it
+  from deadlocking).
 - Rules are loaded from JS (fetched), so they stay external and tunable — the same
   decoupling that lets the endpoint build hot-swap rule bundles.

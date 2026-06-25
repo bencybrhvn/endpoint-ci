@@ -309,8 +309,11 @@ cd web && python3 -m http.server 8080   # open http://localhost:8080/
 ```
 
 Drop a file (txt/csv/docx/xlsx/pptx/pdf) or paste text → verdict + profiles + scan
-time, computed locally by the same Go engine (~1.5 MB gzipped WASM). See
-[`web/README.md`](./web/README.md) for details and the Web-Worker isolation note.
+time, computed locally by the same Go engine (~1.5 MB gzipped WASM). The engine runs
+in a **Web Worker** that the page terminates on timeout, so a malicious file (e.g. a
+memory-bomb PDF) is isolated rather than hanging the tab. Verified across the full
+Nucleuz corpus incl. PDFs (24 bomb PDFs isolated; 99.7% verdict parity with native).
+See [`web/README.md`](./web/README.md).
 
 ## Contributing
 

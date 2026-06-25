@@ -41,46 +41,74 @@
 
   <div id="result"></div>
 
-  <p class="meta">Note: this prototype runs the WASM on the main thread for simplicity. In a real
-  extension, run it in a <b>Web Worker</b> and terminate the worker on a timeout — a malicious
-  PDF can drive the parser to high memory (the same finding we contained with process isolation
-  on the endpoint).</p>
+  <p class="meta">The engine runs in a <b>Web Worker</b>. Each file is inspected with a
+  timeout; if it hangs or balloons memory (a malicious PDF can drive the parser to
+  multi-GB), the main thread <b>terminates the worker</b> and respawns it — the
+  in-browser equivalent of the per-file process isolation used on the endpoint. Such a
+  file is reported as <span class="badge ESCALATE">ESCALATE</span> (isolated).</p>
 
-<script src="wasm_exec.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 const status = $("#status");
+const TIMEOUT_MS = 3000;
+
+let worker, ready;
+function spawn() {
+  worker = new Worker("worker.js");
+  ready = new Promise((resolve) => {
+    worker.addEventListener("message", function h(e) {
+      if (e.data.type === "ready") { worker.removeEventListener("message", h); resolve(e.data.info); }
+    });
+  });
+  return ready;
+}
 
 async function boot() {
-  const go = new Go();
-  const res = await WebAssembly.instantiateStreaming(fetch("ch.wasm"), go.importObject);
-  go.run(res.instance); // registers chLoadRules / chInspect, then blocks (select{})
-
-  // Fetch rules + lexicons and hand them to the engine.
-  const [rules, given, surn, common] = await Promise.all([
-    fetch("config/rules.json").then(r => r.text()),
-    fetch("config/lexicons/given_names.txt").then(r => r.text()),
-    fetch("config/lexicons/surnames.txt").then(r => r.text()),
-    fetch("config/lexicons/common_words.txt").then(r => r.text()),
-  ]);
-  const r = chLoadRules(rules, given, surn, common);
-  if (r.error) { status.textContent = "rules error: " + r.error; return; }
-  status.textContent = `engine ready · ${r.detectors} detectors · ${r.profiles} profiles`;
+  spawn();
+  const info = await ready;
+  if (!info || info.error) { status.textContent = "rules error: " + (info && info.error); return; }
+  status.textContent = `engine ready (Web Worker) · ${info.detectors} detectors · ${info.profiles} profiles`;
   $("#scanText").disabled = false;
 }
 
-function render(jsonStr) {
-  let v; try { v = JSON.parse(jsonStr); } catch { $("#result").innerHTML = "<pre>"+jsonStr+"</pre>"; return; }
-  if (v.error) { $("#result").innerHTML = `<p style="color:#c62828">${v.error}</p>`; return; }
-  const profs = (v.profiles||[]).map(p => `${p.profile_id} (${p.confidence})`).join(", ") || "—";
-  const labels = (v.labels||[]).map(l => `${l.source}:${l.label}`).join(", ");
+// inspect with isolation: terminate + respawn the worker if it exceeds the timeout.
+async function inspect(name, bytes) {
+  await ready;
+  return await new Promise((resolve) => {
+    const id = Math.random().toString(36).slice(2);
+    let done = false;
+    const timer = setTimeout(async () => {
+      if (done) return; done = true;
+      worker.terminate();                    // kill the runaway/OOMing worker
+      status.textContent = "⚠ worker exceeded timeout — terminated & respawning…";
+      spawn(); await ready;
+      status.textContent = "engine ready (respawned after isolation)";
+      resolve({ verdict: "ESCALATE", file: name, isolated: true,
+                note: `isolated: worker exceeded ${TIMEOUT_MS} ms and was terminated` });
+    }, TIMEOUT_MS);
+    function handler(e) {
+      if (e.data.type !== "result" || e.data.id !== id || done) return;
+      done = true; clearTimeout(timer); worker.removeEventListener("message", handler);
+      try { resolve(JSON.parse(e.data.verdict)); }
+      catch { resolve({ verdict: "ESCALATE", error: "bad worker result" }); }
+    }
+    worker.addEventListener("message", handler);
+    worker.postMessage({ type: "inspect", id, name, bytes }, [bytes.buffer]); // transfer ownership
+  });
+}
+
+function render(v) {
+  if (v.error && !v.verdict) { $("#result").innerHTML = `<p style="color:#c62828">${v.error}</p>`; return; }
+  const profs = (v.profiles || []).map(p => `${p.profile_id} (${p.confidence})`).join(", ") || "—";
+  const labels = (v.labels || []).map(l => `${l.source}:${l.label}`).join(", ");
+  const ms = v.scan_duration_us != null ? (v.scan_duration_us / 1000).toFixed(2) + " ms" : "—";
   $("#result").innerHTML = `
     <div class="row">
       <span class="badge ${v.verdict}">${v.verdict}</span>
-      <span class="meta">${v.file_type} · ${v.bytes_seen} bytes · ${(v.scan_duration_us/1000).toFixed(2)} ms
-      ${v.short_circuited ? " · short-circuited" : ""}${v.partial_coverage ? " · partial" : ""}</span>
+      <span class="meta">${v.file_type || "?"} · ${v.bytes_seen ?? "?"} bytes · ${ms}
+      ${v.short_circuited ? " · short-circuited" : ""}${v.partial_coverage ? " · partial" : ""}${v.isolated ? " · isolated" : ""}</span>
     </div>
-    <div class="row meta">profiles: ${profs}${labels ? " · labels: "+labels : ""}</div>
+    <div class="row meta">profiles: ${profs}${labels ? " · labels: " + labels : ""}</div>
     <pre>${JSON.stringify(v, null, 2)}</pre>`;
 }
 
@@ -93,14 +121,14 @@ drop.ondragleave = () => drop.classList.remove("over");
 drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); e.dataTransfer.files[0] && scanFile(e.dataTransfer.files[0]); };
 
 async function scanFile(file) {
+  status.textContent = `inspecting ${file.name}…`;
   const buf = new Uint8Array(await file.arrayBuffer());
-  render(chInspect(file.name, buf));
+  render(await inspect(file.name, buf));
 }
 
-// --- paste text ---
-$("#scanText").onclick = () => {
+$("#scanText").onclick = async () => {
   const bytes = new TextEncoder().encode($("#text").value);
-  render(chInspect("pasted.txt", bytes));
+  render(await inspect("pasted.txt", bytes));
 };
 
 boot().catch(e => status.textContent = "boot failed: " + e);
