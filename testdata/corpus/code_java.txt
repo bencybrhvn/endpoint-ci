@@ -1,0 +1,24 @@
+package com.example.util;
+
+import java.util.HashMap;
+import java.util.Map;
+
+public class WordCounter {
+    private final Map<String, Integer> counts = new HashMap<>();
+
+    public void add(String word) {
+        counts.merge(word.toLowerCase(), 1, Integer::sum);
+    }
+
+    public int get(String word) {
+        return counts.getOrDefault(word, 0);
+    }
+
+    public static void main(String[] args) {
+        WordCounter wc = new WordCounter();
+        for (String w : args) {
+            wc.add(w);
+        }
+        System.out.println(wc.counts);
+    }
+}

@@ -1,20 +1,20 @@
 {
   "schema_version": "0.1-local",
-  "description": "endpoint-ci local detection rules. Two layers: 'detectors' (atomic leaf data types with RE2-safe patterns + validators) and 'profiles' (named concepts composed from detectors). Authored by us \u2014 the cloud policy export contains no patterns. Patterns are Go regexp (RE2): NO lookahead/lookbehind/backreference.",
+  "description": "endpoint-ci local detection rules. Two layers: 'detectors' (atomic leaf data types with RE2-safe patterns + validators) and 'profiles' (named concepts composed from detectors). Authored by us — the cloud policy export contains no patterns. Patterns are Go regexp (RE2): NO lookahead/lookbehind/backreference.",
   "confidence_model": {
-    "_doc": "Per detector: start at base_confidence. Boost +validator_boost if a validator passes, +keyword_boost if a context keyword is within keyword_window chars of the match, +instance_boost per extra match up to max_instance_boosts. Cap 100. A detector 'fires' at/above its fire_threshold.",
+    "_doc": "Per detector: start at base_confidence. Boost +validator_boost if a validator passes, +keyword_boost if a context keyword is within keyword_window chars of the match, +instance_boost per extra match up to max_instance_boosts. Cap 100. A detector 'fires' at/above its fire_threshold. high_confidence_threshold flags strong matches for reporting; the engine reports matches only — actions are decided by policy outside this component.",
     "validator_boost": 10,
     "keyword_boost": 5,
     "instance_boost": 5,
     "max_instance_boosts": 3,
     "keyword_window": 200,
     "default_fire_threshold": 50,
-    "block_threshold": 65,
     "early_exit": {
       "enabled": true,
-      "stop_on_block": true,
-      "max_total_matches": 1000
-    }
+      "max_total_matches": 1000,
+      "stop_on_high_confidence": true
+    },
+    "high_confidence_threshold": 65
   },
   "validators": {
     "luhn_check": "Luhn mod-10 (strip non-digits first)",
@@ -942,6 +942,125 @@
       "prefilter": {
         "needs_digit": true
       }
+    },
+    {
+      "id": "source_code",
+      "name": "Source Code",
+      "group": "technical",
+      "kind": "code",
+      "data_types": [
+        "DT_Source_Code"
+      ],
+      "notes": "Language-agnostic scoring classifier (no checksum). Requires several corroborating evidence families; prose/JSON/YAML/logs are penalised or gated out. Tune weights here, not in code.",
+      "code": {
+        "keywords": [
+          "def ",
+          "elif ",
+          "import ",
+          "self.",
+          "lambda ",
+          "print(",
+          "func ",
+          "package ",
+          ":= ",
+          "chan ",
+          "defer ",
+          "interface{",
+          "function ",
+          "const ",
+          "let ",
+          "var ",
+          "=> ",
+          "require(",
+          "module.exports",
+          "async ",
+          "await ",
+          "console.",
+          "public ",
+          "private ",
+          "protected ",
+          "static ",
+          "void ",
+          "class ",
+          "namespace ",
+          "#include",
+          "printf(",
+          "println",
+          "System.out",
+          "struct ",
+          "typedef ",
+          "std::",
+          "return ",
+          "if (",
+          "for (",
+          "while (",
+          "switch ",
+          "throw ",
+          "extends ",
+          "implements ",
+          "range ",
+          "map[",
+          "interface {",
+          " nil",
+          "public:",
+          "private:",
+          "protected:",
+          "using namespace",
+          "<?php",
+          "function(",
+          "document.",
+          "<script",
+          "SELECT ",
+          "CREATE ",
+          "INSERT ",
+          "UPDATE ",
+          "DELETE ",
+          "WHERE ",
+          "VALUES",
+          "FROM ",
+          "puts ",
+          "elsif ",
+          "attr_",
+          "print \""
+        ],
+        "operators": [
+          "==",
+          "!=",
+          "===",
+          "!==",
+          "=>",
+          "->",
+          "::",
+          ":=",
+          "&&",
+          "||",
+          "+=",
+          "-=",
+          "});",
+          "){",
+          ");"
+        ],
+        "comments": [
+          "//",
+          "/*",
+          "*/",
+          "#!",
+          "\"\"\"",
+          " * "
+        ],
+        "scoring": {
+          "keyword_weight": 22,
+          "operator_weight": 14,
+          "punct_weight": 16,
+          "indent_weight": 16,
+          "comment_weight": 18,
+          "prose_penalty": 45,
+          "min_keyword_hits": 8,
+          "min_lines": 3,
+          "fire_threshold": 20,
+          "base_confidence": 55
+        }
+      }
     }
   ],
   "profiles": [
@@ -949,7 +1068,6 @@
       "profile_id": "PCI",
       "profile_name": "Payment Card Data (PCI)",
       "data_type": "DT_Financial_PCI",
-      "verdict_on_match": "BLOCK",
       "match": {
         "op": "detector",
         "id": "credit_card",
@@ -960,7 +1078,6 @@
       "profile_id": "FINANCIAL",
       "profile_name": "Financial Identifiers",
       "data_type": "DT_Financial_PCI",
-      "verdict_on_match": "BLOCK",
       "match": {
         "op": "or",
         "min": 1,
@@ -995,7 +1112,6 @@
       "profile_id": "US_PII",
       "profile_name": "US Personal Data (PII)",
       "data_type": "DT_PII_Personal_Data",
-      "verdict_on_match": "BLOCK",
       "match": {
         "op": "or",
         "min": 1,
@@ -1066,7 +1182,6 @@
       "profile_id": "UK_PII",
       "profile_name": "UK Personal Data (PII)",
       "data_type": "DT_PII_Personal_Data",
-      "verdict_on_match": "BLOCK",
       "match": {
         "op": "or",
         "min": 1,
@@ -1130,7 +1245,6 @@
       "profile_id": "CA_PII",
       "profile_name": "Canada Personal Data (PII)",
       "data_type": "DT_PII_Personal_Data",
-      "verdict_on_match": "BLOCK",
       "match": {
         "op": "or",
         "min": 1,
@@ -1183,7 +1297,6 @@
       "profile_id": "EU_PII",
       "profile_name": "EU Personal Data (PII)",
       "data_type": "DT_PII_Personal_Data",
-      "verdict_on_match": "BLOCK",
       "match": {
         "op": "or",
         "min": 1,
@@ -1255,7 +1368,6 @@
       "profile_id": "PHI_HIPAA",
       "profile_name": "Protected Health Information (HIPAA)",
       "data_type": "DT_PHI_Medical",
-      "verdict_on_match": "BLOCK",
       "match": {
         "op": "and",
         "of": [
@@ -1329,8 +1441,7 @@
       "profile_id": "SECRETS",
       "profile_name": "Technical Keys & Secrets",
       "data_type": "DT_Technical_Keys_Secrets",
-      "verdict_on_match": "BLOCK",
-      "_note": "Bonus profile \u2014 leaves are built; not a primary MVP target.",
+      "_note": "Bonus profile — leaves are built; not a primary MVP target.",
       "match": {
         "op": "or",
         "min": 1,
@@ -1354,7 +1465,6 @@
       "profile_id": "EMAIL",
       "profile_name": "Email Address",
       "data_type": "DT_PII_Personal_Data",
-      "verdict_on_match": "ESCALATE",
       "match": {
         "op": "detector",
         "id": "email"
@@ -1364,10 +1474,18 @@
       "profile_id": "IP_ADDRESS",
       "profile_name": "IP Address",
       "data_type": "DT_PII_Personal_Data",
-      "verdict_on_match": "BLOCK",
       "match": {
         "op": "detector",
         "id": "ip_address"
+      }
+    },
+    {
+      "profile_id": "SOURCE_CODE",
+      "profile_name": "Source Code",
+      "data_type": "DT_Source_Code",
+      "match": {
+        "op": "detector",
+        "id": "source_code"
       }
     }
   ],

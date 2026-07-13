@@ -53,7 +53,8 @@ func (c *Ctx) ScanDetectors(db *rules.DB, dets []*rules.Detector) map[string]*Re
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, runtime.NumCPU())
 	for _, d := range dets {
-		if d.Kind != "dictionary" && skipByPrefilter(d, c.litPresent, c.hasDigit) {
+		// dictionary/code are whole-text scorers, not literal-anchored — never skip them.
+		if d.Kind != "dictionary" && d.Kind != "code" && skipByPrefilter(d, c.litPresent, c.hasDigit) {
 			continue
 		}
 		wg.Add(1)
@@ -62,9 +63,12 @@ func (c *Ctx) ScanDetectors(db *rules.DB, dets []*rules.Detector) map[string]*Re
 			defer wg.Done()
 			defer func() { <-sem }()
 			var r *Result
-			if d.Kind == "dictionary" {
+			switch d.Kind {
+			case "dictionary":
 				r = scanDictionary(c.text, d, db)
-			} else {
+			case "code":
+				r = scanCode(c.text, d)
+			default:
 				r = scanRegex(c.text, c.lower, d, db)
 			}
 			if r != nil {
@@ -359,4 +363,147 @@ func spacesOnly(text string, a, b tok) bool {
 		}
 	}
 	return true
+}
+
+// --- source-code classifier (kind "code") ---
+
+// scanCode is the language-agnostic source-code classifier. Source code carries
+// no checksum, so — like the person-name scorer — reliability comes from
+// combining several corroborating evidence families (keyword/operator density,
+// structural punctuation, indentation, comments), penalising natural-language
+// prose, and requiring a minimum keyword presence before it can fire (which is
+// what keeps JSON/YAML/prose/logs from tripping it). One O(n) pass over lines
+// plus a token-count pass; weights and token sets come from rules.json.
+func scanCode(text string, d *rules.Detector) *Result {
+	cm := d.Code
+	if cm == nil {
+		return nil
+	}
+	sc := cm.Scoring
+
+	// Occurrence counts. Case-sensitive on purpose: real code keywords are
+	// lower-case tokens ("func ", "def ") so sentence-case prose won't match.
+	kwHits := 0
+	for _, k := range cm.Keywords {
+		kwHits += strings.Count(text, k)
+	}
+	opHits := 0
+	for _, o := range cm.Operators {
+		opHits += strings.Count(text, o)
+	}
+
+	// Per-line structure in one pass: non-empty line count, indented lines,
+	// structural punctuation, comment lines, and natural-language prose lines.
+	// Comment lines (licence headers, doc comments) are positive evidence of
+	// code — NOT prose — so real source with a big English licence block (very
+	// common) isn't penalised into silence.
+	var lines, indent, prose, punct, comment, totalWords int
+	scanLine := func(ln string) {
+		trimmed := strings.TrimLeft(ln, " \t")
+		if trimmed == "" {
+			return
+		}
+		lines++
+		if len(ln) > len(trimmed) {
+			indent++
+		}
+		if isCommentLine(trimmed) {
+			comment++
+			return // comments never count as prose
+		}
+		words, inWord, symbols := 0, false, 0
+		for i := 0; i < len(ln); i++ {
+			switch ln[i] {
+			case '{', '}', '(', ')', '[', ']', ';':
+				punct++
+				symbols++
+			case '=', '<', '>':
+				symbols++
+			}
+			if isWordByte(ln[i]) {
+				if !inWord {
+					words++
+					inWord = true
+				}
+			} else {
+				inWord = false
+			}
+		}
+		// A prose line: a long run of words carrying almost no code symbols. Symbol
+		// density (not a terminal full stop) is the discriminator — it survives the
+		// truncated/heading-heavy lines that document extraction produces, and legal
+		// outline numbering "(a)(i)" can't disguise a sentence as code.
+		if words >= 10 && symbols <= 2 {
+			prose++
+		}
+		totalWords += words
+	}
+	start := 0
+	for i := 0; i < len(text); i++ {
+		if text[i] == '\n' {
+			scanLine(text[start:i])
+			start = i + 1
+		}
+	}
+	scanLine(text[start:])
+
+	// Gates: too small to judge, or not enough keyword evidence to be code.
+	if lines < sc.MinLines || kwHits < sc.MinKeywordHits {
+		return nil
+	}
+
+	// Normalise by an estimated logical-line count, not raw lines. Document
+	// extraction (docx/pdf) concatenates paragraphs into a few very long lines,
+	// which would otherwise explode the per-line keyword density and make prose
+	// look like dense code. ~12 words ≈ one logical line of source.
+	fl := float64(lines)
+	if lw := float64(totalWords) / 12.0; lw > fl {
+		fl = lw
+	}
+	clamp := func(v, hi float64) float64 {
+		if v > hi {
+			return hi
+		}
+		return v
+	}
+	score := float64(sc.KeywordWeight)*clamp(float64(kwHits)/fl, 2.0) +
+		float64(sc.OperatorWeight)*clamp(float64(opHits)/fl, 2.0) +
+		float64(sc.CommentWeight)*(float64(comment)/fl) +
+		float64(sc.IndentWeight)*(float64(indent)/fl) +
+		float64(sc.PunctWeight)*clamp((float64(punct)/fl)/3.0, 1.0) -
+		float64(sc.ProsePenalty)*(float64(prose)/fl)
+
+	if int(score) < sc.FireThreshold {
+		return nil
+	}
+	conf := sc.BaseConfidence + int(score)
+	if conf > 95 {
+		conf = 95
+	}
+	if conf < 0 {
+		conf = 0
+	}
+	return &Result{ID: d.ID, Name: d.Name, RawCount: kwHits, ValidatedCount: kwHits,
+		Confidence: conf, Fired: true}
+}
+
+func isWordByte(b byte) bool {
+	return b == '_' || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
+}
+
+// isCommentLine reports whether a whitespace-trimmed line begins with a
+// line/block comment marker common across languages (C/Java/JS //, /* and *
+// continuations; shell/Python/Ruby #; SQL/Lua --; Fortran ! ; INI/asm ;; SGML
+// <!--; Python/Ruby docstring delimiters). Comment prose is code, not prose.
+func isCommentLine(trimmed string) bool {
+	switch trimmed[0] {
+	case '#', '*', '!', ';':
+		return true
+	}
+	for _, p := range []string{"//", "/*", "--", "<!--", `"""`, "'''"} {
+		if strings.HasPrefix(trimmed, p) {
+			return true
+		}
+	}
+	return false
 }

@@ -1,0 +1,10 @@
+INFO  starting service sample-service version two point three
+INFO  loaded configuration from the default profile
+WARN  cache warm-up skipped because the feature was disabled
+INFO  accepted connection from an internal client on the primary listener
+INFO  request completed successfully in forty two milliseconds
+WARN  retry scheduled after a transient upstream failure
+INFO  connection closed cleanly by the remote peer
+ERROR upstream timed out after thirty seconds, giving up on the request
+INFO  background flush wrote pending records to durable storage
+INFO  shutting down after receiving a termination signal

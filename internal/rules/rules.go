@@ -22,24 +22,25 @@ const (
 )
 
 type ConfidenceModel struct {
-	ValidatorBoost       int       `json:"validator_boost"`
-	KeywordBoost         int       `json:"keyword_boost"`
-	InstanceBoost        int       `json:"instance_boost"`
-	MaxInstanceBoosts    int       `json:"max_instance_boosts"`
-	KeywordWindow        int       `json:"keyword_window"`
-	DefaultFireThreshold int       `json:"default_fire_threshold"`
-	BlockThreshold       int       `json:"block_threshold"`
-	EarlyExit            EarlyExit `json:"early_exit"`
+	ValidatorBoost          int       `json:"validator_boost"`
+	KeywordBoost            int       `json:"keyword_boost"`
+	InstanceBoost           int       `json:"instance_boost"`
+	MaxInstanceBoosts       int       `json:"max_instance_boosts"`
+	KeywordWindow           int       `json:"keyword_window"`
+	DefaultFireThreshold    int       `json:"default_fire_threshold"`
+	HighConfidenceThreshold int       `json:"high_confidence_threshold"`
+	EarlyExit               EarlyExit `json:"early_exit"`
 }
 
-// EarlyExit short-circuits the engine once the verdict is already decided:
-// stop scanning further detectors once a BLOCK-confidence profile has fired, or
-// once total matches cross a saturation cap. The disposition can't change after
-// BLOCK, so remaining work is pure cost.
+// EarlyExit short-circuits scanning once the endpoint already has a strong,
+// reportable signal: stop scanning further detectors once a high-confidence
+// profile has matched, or once total matches cross a saturation cap. This is a
+// hot-path cost optimisation (spec resource budget), not a policy action — the
+// engine reports matches; enforcement decisions happen outside this component.
 type EarlyExit struct {
-	Enabled         bool `json:"enabled"`
-	StopOnBlock     bool `json:"stop_on_block"`
-	MaxTotalMatches int  `json:"max_total_matches"`
+	Enabled              bool `json:"enabled"`
+	StopOnHighConfidence bool `json:"stop_on_high_confidence"`
+	MaxTotalMatches      int  `json:"max_total_matches"`
 }
 
 type Scoring struct {
@@ -66,6 +67,33 @@ type Dictionary struct {
 	TitleSet map[string]bool `json:"-"`
 }
 
+// CodeScoring weights the evidence families of the source-code classifier. All
+// are tunable in rules.json so calibration needs no recompile.
+type CodeScoring struct {
+	KeywordWeight  int `json:"keyword_weight"`   // per keyword-hit-per-line (saturating)
+	OperatorWeight int `json:"operator_weight"`  // per operator-hit-per-line (saturating)
+	PunctWeight    int `json:"punct_weight"`     // structural punctuation density
+	IndentWeight   int `json:"indent_weight"`    // fraction of indented lines
+	CommentWeight  int `json:"comment_weight"`   // comment-marker density
+	ProsePenalty   int `json:"prose_penalty"`    // subtracted per fraction of prose lines
+	MinKeywordHits int `json:"min_keyword_hits"` // gate: need at least this many keyword hits
+	MinLines       int `json:"min_lines"`        // gate: need at least this many non-empty lines
+	FireThreshold  int `json:"fire_threshold"`   // score at/above which the detector fires
+	BaseConfidence int `json:"base_confidence"`  // confidence floor for a fired match
+}
+
+// CodeModel drives the language-agnostic source-code classifier (Kind "code").
+// It is a scoring detector (like the person-name dictionary), not regex+checksum:
+// source code has no checksum, so reliability comes from requiring several
+// corroborating evidence families and penalising prose. Token sets and weights
+// live in rules.json; the feature extraction lives in internal/scan.
+type CodeModel struct {
+	Keywords  []string    `json:"keywords"`  // language keywords/tokens (case-sensitive, e.g. "func ")
+	Operators []string    `json:"operators"` // code operators (e.g. ":=", "=>", "});")
+	Comments  []string    `json:"comments"`  // comment markers (e.g. "//", "/*")
+	Scoring   CodeScoring `json:"scoring"`
+}
+
 // Prefilter is a cheap pre-check: skip this detector's regex unless one of its
 // literals is present (Aho-Corasick) and/or the file contains a digit.
 type Prefilter struct {
@@ -78,7 +106,7 @@ type Detector struct {
 	ID             string      `json:"id"`
 	Name           string      `json:"name"`
 	Group          string      `json:"group"`
-	Kind           string      `json:"kind"` // "" => regex, or "dictionary"
+	Kind           string      `json:"kind"` // "" => regex, "dictionary", or "code"
 	DataTypes      []string    `json:"data_types"`
 	PatternStrs    []string    `json:"patterns"`
 	Validators     []string    `json:"validators"`
@@ -86,6 +114,7 @@ type Detector struct {
 	BaseConfidence int         `json:"base_confidence"`
 	BestEffort     bool        `json:"best_effort"`
 	Dict           *Dictionary `json:"dictionary"`
+	Code           *CodeModel  `json:"code"`
 	Prefilter      *Prefilter  `json:"prefilter"`
 
 	// compiled (not from JSON)
@@ -103,12 +132,15 @@ type Node struct {
 	Of           []Node `json:"of"`
 }
 
+// Profile is a named concept (e.g. PCI, US_PII) composed from leaf detectors.
+// It carries a data_type for cloud comparability. It deliberately has NO action
+// field: the engine reports which profiles matched and how strongly; the policy
+// engine (outside this component) decides what to do about it.
 type Profile struct {
-	ProfileID      string `json:"profile_id"`
-	ProfileName    string `json:"profile_name"`
-	DataType       string `json:"data_type"`
-	VerdictOnMatch string `json:"verdict_on_match"`
-	Match          Node   `json:"match"`
+	ProfileID   string `json:"profile_id"`
+	ProfileName string `json:"profile_name"`
+	DataType    string `json:"data_type"`
+	Match       Node   `json:"match"`
 }
 
 // LabelMarker matches sensitivity/classification labels (spec §4.5/§5):

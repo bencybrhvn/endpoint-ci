@@ -1,0 +1,13 @@
+# Project Overview
+
+This document describes the goals of the platform initiative for the coming
+quarter. Our primary aim is to improve reliability while reducing the overall
+operating cost of the service.
+
+The team has agreed on three main priorities. First, we will consolidate the
+duplicated data pipelines that have grown over the past year. Second, we intend
+to document the existing interfaces so that new engineers can onboard quickly.
+Finally, we will invest in better observability across the fleet.
+
+Each of these workstreams will be reviewed at the end of the quarter. Progress
+should be reported weekly during the regular team meeting.

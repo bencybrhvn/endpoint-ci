@@ -19,7 +19,7 @@
            background: #4a90d9; color: #fff; cursor: pointer; }
   button:disabled { opacity: .5; cursor: default; }
   .badge { font-weight: 700; padding: .15rem .55rem; border-radius: 999px; color: #fff; font-size: .85rem; }
-  .ALLOW { background:#2e7d32 } .ESCALATE { background:#ef6c00 } .BLOCK { background:#c62828 }
+  .clean { background:#2e7d32 } .match { background:#ef6c00 } .unreadable { background:#616161 } .isolated { background:#8e24aa }
   pre { background:#8881; padding:1rem; border-radius:8px; overflow:auto; font-size:12.5px; }
   .row { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; margin:.6rem 0; }
   .meta { color:#888; font-size:.85rem; }
@@ -45,7 +45,9 @@
   timeout; if it hangs or balloons memory (a malicious PDF can drive the parser to
   multi-GB), the main thread <b>terminates the worker</b> and respawns it — the
   in-browser equivalent of the per-file process isolation used on the endpoint. Such a
-  file is reported as <span class="badge ESCALATE">ESCALATE</span> (isolated).</p>
+  file is reported as <span class="badge isolated">ISOLATED</span> (not inspected). The
+  engine only <b>reports</b> what it finds — any block/allow decision is made by a
+  separate policy layer, outside this component.</p>
 
 <script>
 const $ = s => document.querySelector(s);
@@ -83,30 +85,42 @@ async function inspect(name, bytes) {
       status.textContent = "⚠ worker exceeded timeout — terminated & respawning…";
       spawn(); await ready;
       status.textContent = "engine ready (respawned after isolation)";
-      resolve({ verdict: "ESCALATE", file: name, isolated: true,
+      resolve({ file: name, isolated: true, readable: false,
                 note: `isolated: worker exceeded ${TIMEOUT_MS} ms and was terminated` });
     }, TIMEOUT_MS);
     function handler(e) {
       if (e.data.type !== "result" || e.data.id !== id || done) return;
       done = true; clearTimeout(timer); worker.removeEventListener("message", handler);
-      try { resolve(JSON.parse(e.data.verdict)); }
-      catch { resolve({ verdict: "ESCALATE", error: "bad worker result" }); }
+      try { resolve(JSON.parse(e.data.report)); }
+      catch { resolve({ error: "bad worker result" }); }
     }
     worker.addEventListener("message", handler);
     worker.postMessage({ type: "inspect", id, name, bytes }, [bytes.buffer]); // transfer ownership
   });
 }
 
+// stateOf summarises the report for the badge. It is a display convenience, not a
+// policy decision — the engine reports matches; actions are decided elsewhere.
+function stateOf(v) {
+  if (v.isolated) return { cls: "isolated", text: "ISOLATED" };
+  if (v.readable === false) return { cls: "unreadable", text: "UNREADABLE" };
+  const n = (v.profiles || []).length;
+  if (n === 0) return { cls: "clean", text: "NO MATCH" };
+  return { cls: "match", text: `MATCH · ${n} profile${n > 1 ? "s" : ""}` };
+}
+
 function render(v) {
-  if (v.error && !v.verdict) { $("#result").innerHTML = `<p style="color:#c62828">${v.error}</p>`; return; }
+  if (v.error) { $("#result").innerHTML = `<p style="color:#c62828">${v.error}</p>`; return; }
+  const st = stateOf(v);
   const profs = (v.profiles || []).map(p => `${p.profile_id} (${p.confidence})`).join(", ") || "—";
   const labels = (v.labels || []).map(l => `${l.source}:${l.label}`).join(", ");
   const ms = v.scan_duration_us != null ? (v.scan_duration_us / 1000).toFixed(2) + " ms" : "—";
+  const cov = v.coverage && v.coverage !== "full" ? " · " + v.coverage : "";
   $("#result").innerHTML = `
     <div class="row">
-      <span class="badge ${v.verdict}">${v.verdict}</span>
+      <span class="badge ${st.cls}">${st.text}</span>
       <span class="meta">${v.file_type || "?"} · ${v.bytes_seen ?? "?"} bytes · ${ms}
-      ${v.short_circuited ? " · short-circuited" : ""}${v.partial_coverage ? " · partial" : ""}${v.isolated ? " · isolated" : ""}</span>
+      ${v.short_circuited ? " · short-circuited" : ""}${cov}${v.isolated ? " · isolated" : ""}</span>
     </div>
     <div class="row meta">profiles: ${profs}${labels ? " · labels: " + labels : ""}</div>
     <pre>${JSON.stringify(v, null, 2)}</pre>`;

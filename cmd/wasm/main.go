@@ -8,7 +8,7 @@
 // JS API (see web/index.html):
 //
 //	chLoadRules(rulesJSON, givenNames, surnames, commonWords) -> {detectors, profiles} | {error}
-//	chInspect(name, Uint8Array)                               -> verdict JSON string
+//	chInspect(name, Uint8Array)                               -> match-report JSON string
 package main
 
 import (
@@ -48,7 +48,7 @@ func loadRules(_ js.Value, args []js.Value) any {
 // single-threaded WASM scheduler.
 func inspect(_ js.Value, args []js.Value) any {
 	resolveErr := func(msg string) any {
-		return js.Global().Get("Promise").Call("resolve", `{"verdict":"ESCALATE","error":"`+msg+`"}`)
+		return js.Global().Get("Promise").Call("resolve", `{"error":"`+msg+`"}`)
 	}
 	if db == nil {
 		return resolveErr("rules not loaded; call chLoadRules first")
@@ -67,13 +67,13 @@ func inspect(_ js.Value, args []js.Value) any {
 			defer executor.Release()
 			defer func() {
 				if r := recover(); r != nil {
-					resolve.Invoke(`{"verdict":"ESCALATE","error":"panic during inspect"}`)
+					resolve.Invoke(`{"error":"panic during inspect"}`)
 				}
 			}()
 			v := engine.InspectData(name, buf, db, extract.Config{})
 			out, err := json.Marshal(v)
 			if err != nil {
-				resolve.Invoke(`{"verdict":"ESCALATE","error":"marshal failed"}`)
+				resolve.Invoke(`{"error":"marshal failed"}`)
 				return
 			}
 			resolve.Invoke(string(out))

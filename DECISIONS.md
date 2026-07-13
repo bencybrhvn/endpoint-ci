@@ -161,6 +161,44 @@ Result: ~17 MB/s. 500 KB dense ~31 ms, 500 KB prose+PII ~33 ms, typical ≤8 KB 
 
 ---
 
+## 2026-07-07 — Report matches, don't decide actions (remove ALLOW/BLOCK/ESCALATE)
+
+**Context:** The spec (§4.6) and the early PoC had the engine emit an ALLOW/BLOCK/ESCALATE *verdict*, with per-profile `verdict_on_match` ceilings and a `block_threshold`. In the real product the action decision is **not** made by this component — a separate policy engine consumes detections and decides enforcement. Baking actions into the inspection engine conflates two layers and uses the wrong vocabulary (a content inspector doesn't "block").
+
+**Decision:** The engine **inspects and reports only**. It emits a match `Report`, never a verdict/action:
+- Removed the `Disposition` (ALLOW/BLOCK/ESCALATE) and the `Allow`/`Block`/`Escalate` constants.
+- Removed `verdict_on_match` from every profile and the severity-upgrade logic. A profile is just a named concept + `data_type`; each match reports `confidence` and the contributing leaf `rules` (rule_ids) as evidence.
+- Renamed the confidence-model knob `block_threshold` → `high_confidence_threshold` and the early-exit trigger `stop_on_block` → `stop_on_high_confidence`. These now serve **reporting quality** (flagging strong matches) and the **hot-path cost optimisation** — not an action.
+- States that were previously encoded as ESCALATE are now **neutral scan facts** the policy layer weighs: `readable: false` (encrypted/corrupt/binary — no body inspected) and `coverage: full|partial|truncated` (size gate / cap). The unsupported-vs-encrypted distinction survives only as a `note`.
+- Sensitivity labels are reported in `labels[]` with their `source` (metadata vs body); the engine no longer upgrades anything on their account.
+
+**Alternatives considered:**
+- *Keep `verdict_on_match` as an advisory hint* — rejected: it re-introduces action vocabulary into a component that must not own the decision, and invites drift with the real policy engine.
+- *Emit raw evidence with no confidence* — rejected (see below): throws away the validator/keyword/instance scoring the engine already does well; we chose to keep `confidence` + a `fired`/high-confidence flag as a detection-quality signal, distinct from the action.
+
+**Consequences:**
+- Output contract changed: `Report{ readable, coverage, profiles[]{confidence, rules[]}, labels[], detectors[]{data_types…} }`. `DetectorFinding` now carries `data_types` (dataset_id pass-through) to preserve cloud comparability.
+- CLI `--scan` summary reports clean/matched/high-confidence/unreadable counts instead of verdict counts; the WASM demo badge shows NO MATCH / MATCH / UNREADABLE / ISOLATED.
+- This **deviates from `overview.md` §4.6** deliberately; the spec's verdict logic is superseded by this entry. Early-exit still trims the reported profile set on strong matches (flagged `short_circuited`).
+
+---
+
+## 2026-07-08 — Source-code detection as a scoring detector kind
+
+**Context:** DLP needs to flag source code (IP egress), but source code has **no checksum** — the regex+validator model behind PCI/SSN doesn't apply. It's a fuzzy classification problem.
+
+**Decision:** Add a third detector `kind: "code"` alongside `regex` and `dictionary`, mirroring the person-name scorer: a language-agnostic classifier (`scanCode` in internal/scan) that combines corroborating evidence families — keyword/operator density, structural punctuation, indentation, and comment-line fraction — penalises natural-language prose, and requires a minimum absolute keyword count before it can fire. All weights + token sets live in `config/rules.json` under the detector's `code` block, so calibration needs no recompile. Feeds a `SOURCE_CODE` profile (`DT_Source_Code`). One O(n) line pass + a token-count pass; a 500 KB source file inspects in ~20 ms / 43 allocs.
+
+**Calibration — validated against the Nucleuz corpus's own `Intellectual_Property/Matches/` source samples (14 languages), which is held-out ground truth (calibration used a separate synthetic set):** initial recall was only 5/14. Two failure modes — invisible in the synthetic set — drove the design:
+- **Comment prose.** Real source opens with big English **licence / doc-comment blocks** (the MD5 C licence, a Python API-builder header). Treating comment lines as prose penalised real code into silence. Fix: comment lines (leading `//`, `/*`, `*`, `#`, `--`, `!`, `;`, docstring delims) are **positive** evidence, never prose.
+- **Line-structure loss on extracted documents.** `.docx`/`.pdf` extraction concatenates paragraphs into a few very long lines, which exploded per-line keyword density and made a Māori-language article score 95. Fixes: normalise density by an **estimated logical-line count** (`max(lines, words/12)`), and detect prose by **symbol density** (long word-runs with ≤2 code symbols) rather than a terminal full stop (extraction strips it).
+
+**Result:** **10/14** recall on the real source files (75–95 confidence; Perl, C#, Fortran, SQL all fire despite not being in the calibration set) and **0 false positives across all 2,278 non-PDF corpus files** — including legal/government prose with 100+ "public" hits and long prose articles. Residual misses: a 2-line Bash stub (below `min_lines`) and three licence-/data-dominated files.
+
+**Consequences / headroom:** the classifier is strongest on raw code files/paste (real line structure); extracted document prose is guarded by the logical-line + symbol-density + comment fixes. The `source_code` detector runs `strings.Count` over ~68 tokens for every file — within budget, but a future optimisation is to fold those into the Aho-Corasick prefilter and skip the scorer when no code keyword is present. Secrets detection (`api_key`/`private_key`/`jwt` → `SECRETS`) is the complementary regex+prefix capability and already existed.
+
+---
+
 ## 2026-06-24 — Open: negative-lookahead PII patterns
 
 **Context:** The spec's sample SSN pattern uses negative lookaheads `(?!000|666|9\d{2})`, which strict RE2 (and Go `regexp`) reject.

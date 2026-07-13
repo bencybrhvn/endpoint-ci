@@ -37,8 +37,10 @@ small and focused; prefer the standard library and justify any new dependency
 - **British English** in docs/comments.
 - **RE2 only**: patterns must compile under Go's `regexp` (no lookahead/lookbehind/
   backreference). Move value-validity logic into a validator instead (see SSN).
-- **Fail gracefully**: extraction/parse errors degrade to a verdict (usually
-  ESCALATE), never panic the caller.
+- **Fail gracefully**: extraction/parse errors are reported as a fact
+  (`readable: false` with a note), never panic the caller. The engine reports
+  matches; it never decides an action (see [`DECISIONS.md`](./DECISIONS.md)
+  2026-07-07) — there is no ALLOW/BLOCK/ESCALATE.
 - **No real data**: `testdata/` is synthetic only. Validators are tested against
   well-known public test values, not real identifiers.
 - Record notable design choices in `DECISIONS.md`; keep `CURRENT_WORK.md` (local,
@@ -48,9 +50,10 @@ small and focused; prefer the standard library and justify any new dependency
 
 ## How to add a detector (leaf data type)
 
-1. **Pattern** — add to `config/rules.json → detectors` (RE2-safe). Use
-   `prefilter.needs_digit` and/or `prefilter.literals` so it can be skipped cheaply.
-   Make high-false-positive shapes `best_effort: true` (keyword-gated).
+1. **Pattern** — add to `config/rules.json → detectors` (RE2-safe; detector `kind`
+   is `regex`, `dictionary`, or `code`). Use `prefilter.needs_digit` and/or
+   `prefilter.literals` so it can be skipped cheaply. Make high-false-positive shapes
+   `best_effort: true` (keyword-gated).
 2. **Validator (optional)** — if there's a checksum, add it to
    `internal/validators/validators.go`, register it in the `registry` map, and add a
    known-valid/known-invalid case to `validators_test.go`.
@@ -65,7 +68,8 @@ small and focused; prefer the standard library and justify any new dependency
 1. Add to `config/rules.json → profiles` with a `match` tree of `op`s:
    `detector` (`id`, optional `min_validated`/`min_count`), `or` (`min`, `of[]`),
    `and` (`of[]`).
-2. Set `verdict_on_match` as the **severity ceiling** (`BLOCK` or `ESCALATE`).
+2. Give it a `data_type` (the concept's dataset id). Profiles carry **no**
+   `verdict_on_match` — the engine reports matches + confidence; policy owns actions.
 3. Validate + add a corpus case as above.
 
 ## How to add a sensitivity-label marker
@@ -87,7 +91,7 @@ Add a type to `internal/format` (magic-byte detection) and an extraction branch 
 | add/adjust a data type or profile | `config/rules.json` |
 | add a checksum | `internal/validators` |
 | change scan/confidence behaviour | `internal/scan` |
-| change verdict/early-exit logic | `internal/engine` |
+| change report/early-exit logic | `internal/engine` |
 | add a file format / extraction | `internal/format`, `internal/extract` |
 | add a sensitivity-label source | `internal/label`, `config/rules.json` |
 | add a CLI flag / profiler feature | `cmd/ch-inspect` |

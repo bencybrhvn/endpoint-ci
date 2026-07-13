@@ -50,16 +50,20 @@ file → 1. format detect (magic bytes)
      → 3. multi-pattern regex scan → dataset_id/rule_id matches
      → 4. post-match validators (luhn_check, checksum_iban, checksum_aba)
      → 5. label/marker detect (metadata fast-path → header/footer → body prefix/suffix)
-     → 6. verdict builder (ALLOW / BLOCK / ESCALATE)
+     → 6. report builder (matched profiles + confidence + evidence)
 ```
 
-## Verdict logic (spec §4.6 defaults; configurable)
+## Report model — inspect & report only (supersedes spec §4.6; see DECISIONS.md 2026-07-07)
 
-- **BLOCK** if any regex match with `validated_match_count ≥ 1` AND `confidence ≥ 0.85`.
-- **BLOCK** if any label match from `metadata` source (machine-written, high confidence).
-- **ESCALATE** if a relevant `CLOUD_ONLY` dataset applies, or content is encrypted/unreadable, or a regex match has `confidence < 0.85`.
-- **ALLOW** if no matches and no applicable `CLOUD_ONLY` datasets.
-- The PoC **reports** verdicts — it never enacts blocking.
+This engine **reports what it found; it never decides an action.** Block/allow/quarantine is a *policy* decision made by a separate component that consumes our report. There is no ALLOW/BLOCK/ESCALATE.
+
+Each `Report` (see `internal/engine`) carries:
+- **`profiles[]`** — matched named concepts (PCI, US_PII…), each with `data_type`, `confidence` (0–100), and the contributing leaf `rules` (rule_ids). No action/ceiling field.
+- **`detectors[]`** — every fired leaf detector with `data_types` (dataset_id pass-through), raw/validated counts, confidence.
+- **`labels[]`** — sensitivity labels with `source` (`metadata` = machine-written, authoritative; `body` = distinctive marking).
+- **Neutral scan facts** (not actions): `readable` (false = encrypted/corrupt/binary, no body inspected), `coverage` (`full|partial|truncated`), `short_circuited`.
+
+`confidence` + the `high_confidence_threshold` are a **detection-quality** signal (how strong is this match) — kept distinct from the action, which policy owns. `high_confidence_threshold` also drives the hot-path early-exit (`stop_on_high_confidence`).
 
 ## Intended layout (Go)
 
@@ -73,7 +77,8 @@ endpoint-ci/
 │   ├── scan/            # multi-pattern scan → matches (dataset_id/rule_id)
 │   ├── validators/      # luhn, iban mod-97, aba
 │   ├── label/           # label/marker detection (v1+)
-│   └── verdict/         # ALLOW/BLOCK/ESCALATE builder + JSON output
+│   ├── profile/         # profile composition trees → matched concepts
+│   └── engine/          # pipeline orchestration + match Report (JSON output)
 ├── testdata/corpus/     # synthetic samples (spec §7.1) — NO real PII
 └── docs/                # design notes, consistency notes
 ```
@@ -83,7 +88,7 @@ endpoint-ci/
 - **Go style:** `gofmt`/`go vet` clean; small focused packages; prefer stdlib, justify every dependency (footprint matters).
 - **Performance:** `Benchmark*` for hot-path code; avoid inner-loop allocations; stream don't read-all.
 - **Thread safety (spec §10):** the rule database is read-only after load; inspection must not write shared state — per-call allocations.
-- **Fail gracefully:** extraction/parse failure ⇒ `ESCALATE` with an error note, never panic/crash the caller. No network calls; only side effect is reading the input file.
+- **Fail gracefully:** extraction/parse failure ⇒ report `readable: false` with an error note, never panic/crash the caller. No network calls; only side effect is reading the input file.
 - **No real data:** `testdata/` uses synthetic/fake sensitive data only.
 - **British English** in docs and comments.
 

@@ -1,0 +1,25 @@
+import os
+import sys
+from collections import defaultdict
+
+
+def load_config(path):
+    """Read a config file and return a dict."""
+    result = defaultdict(list)
+    with open(path) as f:
+        for line in f:
+            if not line.strip() or line.startswith("#"):
+                continue
+            key, _, value = line.partition("=")
+            result[key.strip()].append(value.strip())
+    return result
+
+
+class Runner:
+    def __init__(self, cfg):
+        self.cfg = cfg
+
+    def run(self):
+        for key, values in self.cfg.items():
+            print(key, len(values))
+        return True

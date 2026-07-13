@@ -147,13 +147,15 @@ type scanOpts struct {
 }
 
 type fileResult struct {
-	path    string
-	size    int64
-	ftype   string
-	verdict string
-	micros  int64
-	partial bool
-	short   bool
+	path     string
+	size     int64
+	ftype    string
+	matched  bool // >=1 profile matched
+	highConf bool // >=1 profile at/above the high-confidence threshold
+	readable bool // body was content-inspected
+	micros   int64
+	partial  bool
+	short    bool
 }
 
 // runScan recursively inspects real files and reports a real-world profile:
@@ -196,7 +198,7 @@ func runScan(db *rules.DB, cfg extract.Config, o scanOpts) {
 		if os.Getenv("CH_VERBOSE") != "" {
 			fmt.Fprintln(os.Stderr, path)
 		}
-		var v engine.Verdict
+		var v engine.Report
 		var ierr error
 		if o.isolate {
 			v, ierr = inspectIsolated(o, path)
@@ -205,14 +207,15 @@ func runScan(db *rules.DB, cfg extract.Config, o scanOpts) {
 		}
 		totalBytes += info.Size()
 		if ierr != nil {
-			// child killed (OOM/timeout) or unreadable — record as escalate so it's visible.
+			// child killed (OOM/timeout) or unreadable — record so it's visible.
 			killed++
-			results = append(results, fileResult{path, info.Size(), "(killed)", engine.Escalate,
-				o.timeout.Microseconds(), false, false})
+			results = append(results, fileResult{path: path, size: info.Size(), ftype: "(killed)",
+				micros: o.timeout.Microseconds()})
 			return nil
 		}
-		results = append(results, fileResult{path, info.Size(), v.FileType, v.Disposition,
-			v.ScanMicros, v.Partial, v.ShortCircuit})
+		results = append(results, fileResult{path, info.Size(), v.FileType, v.Matched(),
+			v.HighConfidence(db.Conf.HighConfidenceThreshold), v.Readable, v.ScanMicros,
+			v.Coverage != engine.CoverageFull, v.ShortCircuit})
 		return nil
 	})
 	_ = errored
@@ -229,14 +232,21 @@ func runScan(db *rules.DB, cfg extract.Config, o scanOpts) {
 	runtime.ReadMemStats(&memAfter)
 
 	// aggregates
-	verdicts := map[string]int{}
 	types := map[string]int{}
-	var partial, short int
+	var partial, short, matched, highConf, unreadable int
 	durs := make([]time.Duration, len(results))
 	var sumMicros int64
 	for i, r := range results {
-		verdicts[r.verdict]++
 		types[r.ftype]++
+		if r.matched {
+			matched++
+		}
+		if r.highConf {
+			highConf++
+		}
+		if !r.readable {
+			unreadable++
+		}
 		if r.partial {
 			partial++
 		}
@@ -272,11 +282,10 @@ func runScan(db *rules.DB, cfg extract.Config, o scanOpts) {
 		pct(0.50).Round(time.Microsecond), pct(0.90).Round(time.Microsecond),
 		pct(0.95).Round(time.Microsecond), pct(0.99).Round(time.Microsecond), durs[n-1].Round(time.Microsecond))
 
-	fmt.Printf("\nverdicts:  ")
-	for _, k := range []string{engine.Allow, engine.Escalate, engine.Block} {
-		fmt.Printf("%s=%d (%.0f%%)  ", k, verdicts[k], 100*float64(verdicts[k])/float64(n))
-	}
-	fmt.Printf("\nshort-circuited: %d   partial (size gate): %d\n", short, partial)
+	pctOf := func(x int) float64 { return 100 * float64(x) / float64(n) }
+	fmt.Printf("\nmatches:   clean=%d (%.0f%%)  matched=%d (%.0f%%)  of-which-high-confidence=%d  unreadable=%d\n",
+		n-matched, pctOf(n-matched), matched, pctOf(matched), highConf, unreadable)
+	fmt.Printf("short-circuited: %d   partial (size gate): %d\n", short, partial)
 
 	fmt.Printf("\nfile types:\n")
 	for _, kv := range sortedCounts(types) {
@@ -287,10 +296,22 @@ func runScan(db *rules.DB, cfg extract.Config, o scanOpts) {
 	slow := make([]fileResult, len(results))
 	copy(slow, results)
 	sort.Slice(slow, func(i, j int) bool { return slow[i].micros > slow[j].micros })
+	label := func(r fileResult) string {
+		if !r.readable {
+			return "unreadable"
+		}
+		if r.highConf {
+			return "match:high"
+		}
+		if r.matched {
+			return "match"
+		}
+		return "clean"
+	}
 	for i := 0; i < o.top && i < len(slow); i++ {
 		r := slow[i]
-		fmt.Printf("  %7.2f ms  %-9s %-9s %8.0f KB  %s\n",
-			float64(r.micros)/1000, r.verdict, r.ftype, float64(r.size)/1024, r.path)
+		fmt.Printf("  %7.2f ms  %-10s %-9s %8.0f KB  %s\n",
+			float64(r.micros)/1000, label(r), r.ftype, float64(r.size)/1024, r.path)
 	}
 
 	fmt.Printf("\nmemory impact:\n")
@@ -314,7 +335,7 @@ func runScan(db *rules.DB, cfg extract.Config, o scanOpts) {
 // inspectIsolated runs `ch-inspect --file <path>` as a child process with an RSS
 // watchdog + timeout, so a memory-bomb file (e.g. a malicious PDF) only kills the
 // child. Per-file scan latency comes from the child's JSON (accurate, in-child).
-func inspectIsolated(o scanOpts, path string) (engine.Verdict, error) {
+func inspectIsolated(o scanOpts, path string) (engine.Report, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), o.timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, o.self, "--rules", o.rulesPath, "--file", path,
@@ -322,7 +343,7 @@ func inspectIsolated(o scanOpts, path string) (engine.Verdict, error) {
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Start(); err != nil {
-		return engine.Verdict{}, err
+		return engine.Report{}, err
 	}
 	done := make(chan struct{})
 	go func() {
@@ -343,11 +364,11 @@ func inspectIsolated(o scanOpts, path string) (engine.Verdict, error) {
 	err := cmd.Wait()
 	close(done)
 	if err != nil {
-		return engine.Verdict{}, err
+		return engine.Report{}, err
 	}
-	var v engine.Verdict
+	var v engine.Report
 	if e := json.Unmarshal(out.Bytes(), &v); e != nil {
-		return engine.Verdict{}, e
+		return engine.Report{}, e
 	}
 	return v, nil
 }
@@ -397,10 +418,11 @@ func writeCSV(path string, rs []fileResult) error {
 	defer f.Close()
 	w := csv.NewWriter(f)
 	defer w.Flush()
-	w.Write([]string{"path", "bytes", "type", "verdict", "micros", "partial", "short_circuit"})
+	w.Write([]string{"path", "bytes", "type", "matched", "high_confidence", "readable", "micros", "partial", "short_circuit"})
 	for _, r := range rs {
-		w.Write([]string{r.path, fmt.Sprint(r.size), r.ftype, r.verdict,
-			fmt.Sprint(r.micros), fmt.Sprint(r.partial), fmt.Sprint(r.short)})
+		w.Write([]string{r.path, fmt.Sprint(r.size), r.ftype, fmt.Sprint(r.matched),
+			fmt.Sprint(r.highConf), fmt.Sprint(r.readable), fmt.Sprint(r.micros),
+			fmt.Sprint(r.partial), fmt.Sprint(r.short)})
 	}
 	return nil
 }

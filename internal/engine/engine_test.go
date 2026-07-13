@@ -32,7 +32,8 @@ func loadDB(t testing.TB) *rules.DB {
 	return db
 }
 
-// TestCorpus runs every corpus file and checks verdict + expected profiles.
+// TestCorpus runs every corpus file and checks the reported profiles (and,
+// where specified, whether a match reached the high-confidence threshold).
 // Early-exit is disabled here so the FULL profile set is reported (detection
 // completeness); the short-circuit fast path is covered by TestEarlyExit.
 func TestCorpus(t *testing.T) {
@@ -43,8 +44,8 @@ func TestCorpus(t *testing.T) {
 		t.Fatal(err)
 	}
 	var exp map[string]struct {
-		Verdict  string   `json:"verdict"`
-		Profiles []string `json:"profiles"`
+		Profiles       []string `json:"profiles"`
+		HighConfidence *bool    `json:"high_confidence"` // optional: assert only when present
 	}
 	if err := json.Unmarshal(raw, &exp); err != nil {
 		t.Fatal(err)
@@ -57,20 +58,26 @@ func TestCorpus(t *testing.T) {
 				t.Fatal(err)
 			}
 			v := Inspect(name, string(b), db)
-			if v.Disposition != want.Verdict {
-				t.Errorf("verdict = %s, want %s", v.Disposition, want.Verdict)
-			}
 			got := map[string]bool{}
+			var have []string
 			for _, p := range v.Profiles {
 				got[p.ProfileID] = true
+				have = append(have, p.ProfileID)
+			}
+			// A file expected to be clean must report zero profile matches.
+			if len(want.Profiles) == 0 && len(v.Profiles) != 0 {
+				t.Errorf("expected no profiles, got %s", strings.Join(have, ","))
 			}
 			for _, wp := range want.Profiles {
 				if !got[wp] {
-					var have []string
-					for _, p := range v.Profiles {
-						have = append(have, p.ProfileID)
-					}
 					t.Errorf("missing profile %s (got %s)", wp, strings.Join(have, ","))
+				}
+			}
+			if want.HighConfidence != nil {
+				hc := v.HighConfidence(db.Conf.HighConfidenceThreshold)
+				if hc != *want.HighConfidence {
+					t.Errorf("high_confidence = %v, want %v (profiles %s)", hc, *want.HighConfidence,
+						strings.Join(have, ","))
 				}
 			}
 		})
@@ -82,20 +89,20 @@ func TestDocuments(t *testing.T) {
 	db := loadDB(t)
 	db.Conf.EarlyExit.Enabled = false // verify full profile set
 	cases := []struct {
-		file      string
-		verdict   string
-		profile   string // one required profile ("" = none)
-		wantLabel bool   // expect >=1 sensitivity label
+		file         string
+		profile      string // one required profile ("" = none)
+		wantLabel    bool   // expect >=1 sensitivity label
+		wantReadable bool   // body was content-inspected
 	}{
-		{"hipaa.docx", Block, "PHI_HIPAA", false},
-		{"clean.docx", Allow, "", false},
-		{"pci.xlsx", Block, "PCI", false},
-		{"financial.pptx", Block, "FINANCIAL", false},
-		{"pii.pdf", Block, "US_PII", false},
-		{"legacy.doc", Escalate, "", false},        // OLE: extraction fails -> escalate
-		{"labeled.docx", Block, "", true},          // MSIP metadata label -> BLOCK
-		{"footer_marked.docx", Escalate, "", true}, // body marking -> ESCALATE
-		{"labeled.pdf", Block, "", true},           // PDF XMP MSIP label -> BLOCK
+		{"hipaa.docx", "PHI_HIPAA", false, true},
+		{"clean.docx", "", false, true},
+		{"pci.xlsx", "PCI", false, true},
+		{"financial.pptx", "FINANCIAL", false, true},
+		{"pii.pdf", "US_PII", false, true},
+		{"legacy.doc", "", false, false},       // OLE: extraction fails -> not readable
+		{"labeled.docx", "", true, true},       // MSIP metadata label reported
+		{"footer_marked.docx", "", true, true}, // body marking reported
+		{"labeled.pdf", "", true, false},       // PDF XMP MSIP label reported; no text layer
 	}
 	for _, c := range cases {
 		t.Run(c.file, func(t *testing.T) {
@@ -107,8 +114,8 @@ func TestDocuments(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if v.Disposition != c.verdict {
-				t.Errorf("%s: verdict = %s, want %s", c.file, v.Disposition, c.verdict)
+			if v.Readable != c.wantReadable {
+				t.Errorf("%s: readable = %v, want %v", c.file, v.Readable, c.wantReadable)
 			}
 			if c.profile != "" {
 				found := false
@@ -128,27 +135,29 @@ func TestDocuments(t *testing.T) {
 	}
 }
 
-// TestEarlyExit verifies the short-circuit: a PII-saturated buffer reaches BLOCK
-// without scanning every detector, and the verdict is still correct.
+// TestEarlyExit verifies the short-circuit: a PII-saturated buffer produces a
+// high-confidence match without scanning every detector, and the report is still
+// correct.
 func TestEarlyExit(t *testing.T) {
 	db := loadDB(t)
 	if !db.Conf.EarlyExit.Enabled {
 		t.Skip("early-exit disabled in config")
 	}
+	th := db.Conf.HighConfidenceThreshold
 	text := makeLarge(200 * 1024) // dense PII in every block
 	v := Inspect("dense", text, db)
-	if v.Disposition != Block {
-		t.Errorf("verdict = %s, want BLOCK", v.Disposition)
+	if !v.HighConfidence(th) {
+		t.Errorf("expected a high-confidence match on a saturated buffer")
 	}
 	if !v.ShortCircuit {
 		t.Errorf("expected short-circuit on a saturated buffer")
 	}
 
-	// With early-exit off, the same buffer must still BLOCK (and report more).
+	// With early-exit off, the same buffer must still match strongly (and report more).
 	db.Conf.EarlyExit.Enabled = false
 	full := Inspect("dense", text, db)
-	if full.Disposition != Block {
-		t.Errorf("full-scan verdict = %s, want BLOCK", full.Disposition)
+	if !full.HighConfidence(th) {
+		t.Errorf("full-scan: expected a high-confidence match")
 	}
 	if len(full.Profiles) < len(v.Profiles) {
 		t.Errorf("full scan should report >= profiles than short-circuit (%d vs %d)",
@@ -156,8 +165,9 @@ func TestEarlyExit(t *testing.T) {
 	}
 }
 
-// TestSizeGate verifies head/tail extraction + coverage-aware escalation:
-// PII buried in the skipped middle yields ESCALATE; PII in the tail is caught.
+// TestSizeGate verifies head/tail extraction + coverage reporting: PII buried in
+// the skipped middle is not matched but coverage is reported "partial"; PII in
+// the tail window is caught.
 func TestSizeGate(t *testing.T) {
 	db := loadDB(t)
 	dir := t.TempDir()
@@ -179,11 +189,11 @@ func TestSizeGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !v.Partial {
-		t.Errorf("mid.txt: expected partial coverage")
+	if v.Coverage != CoveragePartial {
+		t.Errorf("mid.txt: coverage = %s, want partial", v.Coverage)
 	}
-	if v.Disposition != Escalate {
-		t.Errorf("mid.txt: verdict = %s, want ESCALATE (middle PII not seen)", v.Disposition)
+	if v.Matched() {
+		t.Errorf("mid.txt: expected no matches (middle PII not seen), got %d profiles", len(v.Profiles))
 	}
 
 	// PII in the tail window -> caught -> BLOCK.
@@ -193,11 +203,49 @@ func TestSizeGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !v2.Partial {
-		t.Errorf("tail.txt: expected partial coverage")
+	if v2.Coverage != CoveragePartial {
+		t.Errorf("tail.txt: coverage = %s, want partial", v2.Coverage)
 	}
-	if v2.Disposition != Block {
-		t.Errorf("tail.txt: verdict = %s, want BLOCK (tail PII seen)", v2.Disposition)
+	if !v2.Matched() {
+		t.Errorf("tail.txt: expected a match (tail PII seen), got none")
+	}
+}
+
+// TestSourceCode checks the source-code classifier fires on real code and stays
+// silent on the confusables (config/markup/prose) that naive detectors trip on.
+func TestSourceCode(t *testing.T) {
+	db := loadDB(t)
+	db.Conf.EarlyExit.Enabled = false
+	fires := func(text string) bool {
+		v := Inspect("x", text, db)
+		for _, p := range v.Profiles {
+			if p.ProfileID == "SOURCE_CODE" {
+				return true
+			}
+		}
+		return false
+	}
+
+	goSrc := "" +
+		"package store\n\nimport (\n\t\"errors\"\n\t\"sync\"\n)\n\n" +
+		"// Cache is a tiny concurrency-safe key/value store.\n" +
+		"type Cache struct {\n\tmu sync.Mutex\n\tm  map[string]int\n}\n\n" +
+		"func New() *Cache {\n\treturn &Cache{m: make(map[string]int)}\n}\n\n" +
+		"func (c *Cache) Get(k string) (int, error) {\n\tc.mu.Lock()\n\tdefer c.mu.Unlock()\n" +
+		"\tv, ok := c.m[k]\n\tif !ok {\n\t\treturn 0, errors.New(\"missing\")\n\t}\n\treturn v, nil\n}\n\n" +
+		"func (c *Cache) Set(k string, v int) {\n\tc.mu.Lock()\n\tc.m[k] = v\n\tc.mu.Unlock()\n}\n"
+	if !fires(goSrc) {
+		t.Error("expected SOURCE_CODE to fire on a Go snippet")
+	}
+
+	jsonBlob := "{\n  \"name\": \"svc\",\n  \"port\": 8080,\n  \"tags\": [\"a\", \"b\"],\n  \"nested\": {\"on\": true}\n}\n"
+	if fires(jsonBlob) {
+		t.Error("SOURCE_CODE should not fire on a JSON config blob")
+	}
+
+	prose := strings.Repeat("The quarterly report summarises our progress and outlines the plan. ", 12)
+	if fires(prose) {
+		t.Error("SOURCE_CODE should not fire on natural-language prose")
 	}
 }
 
@@ -228,5 +276,25 @@ func BenchmarkInspect8K(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		Inspect("typical", text, db)
+	}
+}
+
+// BenchmarkInspectCode500K measures the cost of inspecting a large source-code
+// buffer — the source-code classifier is on the hot path for every file.
+func BenchmarkInspectCode500K(b *testing.B) {
+	db := loadDB(b)
+	block := "func handle(w http.ResponseWriter, r *http.Request) error {\n" +
+		"\tid := r.URL.Query().Get(\"id\")\n\tif id == \"\" {\n\t\treturn errors.New(\"missing id\")\n\t}\n" +
+		"\t// look up the record and return it\n\trec, err := store.Get(ctx, id)\n\tif err != nil {\n\t\treturn err\n\t}\n" +
+		"\treturn json.NewEncoder(w).Encode(rec)\n}\n\n"
+	var sb strings.Builder
+	for sb.Len() < 500*1024 {
+		sb.WriteString(block)
+	}
+	text := sb.String()
+	b.SetBytes(int64(len(text)))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Inspect("big.go", text, db)
 	}
 }

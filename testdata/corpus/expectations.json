@@ -1,99 +1,29 @@
 {
-  "pci_card.txt": {
-    "verdict": "BLOCK",
-    "profiles": [
-      "PCI",
-      "FINANCIAL"
-    ]
-  },
-  "card_invalid_luhn.txt": {
-    "verdict": "ALLOW",
-    "profiles": []
-  },
-  "ssn_context.txt": {
-    "verdict": "BLOCK",
-    "profiles": [
-      "US_PII"
-    ]
-  },
-  "ssn_nocontext.txt": {
-    "verdict": "ESCALATE",
-    "profiles": [
-      "US_PII"
-    ]
-  },
-  "financial_iban.txt": {
-    "verdict": "BLOCK",
-    "profiles": [
-      "FINANCIAL"
-    ]
-  },
-  "pii_multi.txt": {
-    "verdict": "BLOCK",
-    "profiles": [
-      "US_PII"
-    ]
-  },
-  "hipaa.txt": {
-    "verdict": "BLOCK",
-    "profiles": [
-      "PHI_HIPAA"
-    ]
-  },
-  "secrets.txt": {
-    "verdict": "BLOCK",
-    "profiles": [
-      "SECRETS"
-    ]
-  },
-  "names_only.txt": {
-    "verdict": "ALLOW",
-    "profiles": []
-  },
-  "clean.txt": {
-    "verdict": "ALLOW",
-    "profiles": []
-  },
-  "itin.txt": {
-    "verdict": "BLOCK",
-    "profiles": [
-      "US_PII"
-    ]
-  },
-  "uk_pii.txt": {
-    "verdict": "BLOCK",
-    "profiles": [
-      "UK_PII"
-    ]
-  },
-  "canada.txt": {
-    "verdict": "BLOCK",
-    "profiles": [
-      "CA_PII"
-    ]
-  },
-  "eu_spain.txt": {
-    "verdict": "BLOCK",
-    "profiles": [
-      "EU_PII"
-    ]
-  },
-  "email_only.txt": {
-    "verdict": "ESCALATE",
-    "profiles": [
-      "EMAIL"
-    ]
-  },
-  "ip_single.txt": {
-    "verdict": "ESCALATE",
-    "profiles": [
-      "IP_ADDRESS"
-    ]
-  },
-  "ip_list.txt": {
-    "verdict": "BLOCK",
-    "profiles": [
-      "IP_ADDRESS"
-    ]
-  }
+  "pci_card.txt": { "profiles": ["PCI", "FINANCIAL"], "high_confidence": true },
+  "card_invalid_luhn.txt": { "profiles": [] },
+  "ssn_context.txt": { "profiles": ["US_PII"], "high_confidence": true },
+  "ssn_nocontext.txt": { "profiles": ["US_PII"], "high_confidence": false },
+  "financial_iban.txt": { "profiles": ["FINANCIAL"], "high_confidence": true },
+  "pii_multi.txt": { "profiles": ["US_PII"], "high_confidence": true },
+  "hipaa.txt": { "profiles": ["PHI_HIPAA"], "high_confidence": true },
+  "secrets.txt": { "profiles": ["SECRETS"], "high_confidence": true },
+  "names_only.txt": { "profiles": [] },
+  "clean.txt": { "profiles": [] },
+  "itin.txt": { "profiles": ["US_PII"], "high_confidence": true },
+  "uk_pii.txt": { "profiles": ["UK_PII"], "high_confidence": true },
+  "canada.txt": { "profiles": ["CA_PII"], "high_confidence": true },
+  "eu_spain.txt": { "profiles": ["EU_PII"], "high_confidence": true },
+  "email_only.txt": { "profiles": ["EMAIL"] },
+  "ip_single.txt": { "profiles": ["IP_ADDRESS"], "high_confidence": false },
+  "ip_list.txt": { "profiles": ["IP_ADDRESS"], "high_confidence": true },
+
+  "code_python.txt": { "profiles": ["SOURCE_CODE"], "high_confidence": true },
+  "code_go.txt": { "profiles": ["SOURCE_CODE"], "high_confidence": true },
+  "code_js.txt": { "profiles": ["SOURCE_CODE"], "high_confidence": true },
+  "code_java.txt": { "profiles": ["SOURCE_CODE"], "high_confidence": true },
+  "code_c.txt": { "profiles": ["SOURCE_CODE"], "high_confidence": true },
+  "config_json.txt": { "profiles": [] },
+  "config_yaml.txt": { "profiles": [] },
+  "prose_markdown.txt": { "profiles": [] },
+  "logs.txt": { "profiles": [] }
 }

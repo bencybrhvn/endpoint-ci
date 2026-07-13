@@ -62,6 +62,25 @@ This is what delivers breadth: a modest set of well-built leaf detectors lights 
 | Private keys (PEM) | marker | `-----BEGIN … PRIVATE KEY-----` |
 | JWT / bearer token | structure | three base64url segments |
 
+### Group F — Source code (→ profile: Source Code)
+| Detector | Validator | Notes |
+|---|---|---|
+| Source code (any language) | ⚠️ scoring classifier | kind `code`; no checksum — see below |
+
+`source_code` (detector kind `code`, `data_type: DT_Source_Code`) is a
+**language-agnostic scoring classifier**, not a regex + validator: source code has no
+checksum. Like the person-name dictionary detector, its reliability comes from
+**combining evidence families** — keyword and operator density, structural
+punctuation, indentation, comment markers — while **penalising natural-language
+prose**, behind a **minimum-keyword gate** that keeps JSON/YAML/prose/logs from
+firing. Weights + token sets live in `config/rules.json` under the detector's `code`
+block (tunable without recompiling); feature extraction is `scanCode` in
+`internal/scan/scan.go`. Validated against the Nucleuz corpus's own source-code
+ground truth: **10/14** real source files (14 languages) fire at 75–95 confidence,
+with **0 false positives across all 2,278 non-PDF files** (incl. legal/government
+prose and long articles). A 500 KB source file inspects in ~20 ms with 43 allocs.
+See DECISIONS.md (2026-07-08) for the calibration story.
+
 ## Layer 2 — Profiles (named concepts, composed from detectors)
 
 Reconstructed from the XML composition semantics; thresholds tunable.
@@ -73,6 +92,7 @@ Reconstructed from the XML composition semantics; thresholds tunable.
 | **PHI / HIPAA** | (≥1 of {MRN, NPI, DEA, ICD-10, health-insurance}) AND (≥2 of {name, DOB, SSN, address, phone, email}) | PHI_Medical |
 | **US PII** | (≥2 distinct PII detectors) OR (≥1 of {SSN, passport, card}) | PII_Personal_Data |
 | **Secrets** | any Group E detector ≥1 | Technical_Keys_Secrets |
+| **Source Code** | source_code ≥1 | Source_Code (DT_Source_Code) |
 
 > The XML defines these per-country/per-regulation; for MVP we implement a small, representative set of profiles and a representative leaf set, then expand.
 
@@ -172,10 +192,21 @@ Canada + EU national IDs shipped: `canada_sin` (Luhn), `fr_nir` (mod-97),
 `nl_bsn` (11-test), with new **CA_PII** and **EU_PII** profiles.
 
 Standalone **EMAIL** and **IP_ADDRESS** profiles added (so a lone email/IP is
-flagged; email→BLOCK, single IP→ESCALATE, multiple IPs→BLOCK).
+flagged and reported; a single IP is a lower-confidence match, multiple IPs push
+above the high-confidence threshold).
 
-Engine now has **37 detectors across 10 profiles** (PCI, Financial, US PII, UK PII,
-CA PII, EU PII, PHI/HIPAA, Secrets, Email, IP).
+Engine now has **38 detectors across 11 profiles** (PCI, Financial, US PII, UK PII,
+CA PII, EU PII, PHI/HIPAA, Secrets, Source Code, Email, IP).
+
+### Status update (2026-07-08)
+Added a **Source Code** capability: `source_code` detector (kind `code`) →
+`SOURCE_CODE` profile (`DT_Source_Code`) — see Group F above.
+
+The engine is now **report-only** (see [`../DECISIONS.md`](../DECISIONS.md)
+2026-07-07): profiles no longer carry a `verdict_on_match` ceiling and there is no
+ALLOW/BLOCK/ESCALATE. Each match is reported with `confidence`; a match at ≥ the
+`high_confidence_threshold` (65) is flagged high-confidence. Actions are decided by a
+separate policy engine.
 
 ## Next step
 The supported list is built. Build the PoC: (1) author RE2 patterns + validators for the leaves into our own rules/profiles definition file; (2) implement the leaf scanner + profile composition engine; (3) synthetic corpus + latency benchmark vs budget (≤50 MB, ≤3% CPU, <100 ms for ≤500 KB).

@@ -1,0 +1,19 @@
+const fs = require("fs");
+
+function parseLines(text) {
+  const out = [];
+  for (const line of text.split("\n")) {
+    if (line.trim() === "" || line.startsWith("//")) {
+      continue;
+    }
+    out.push(line.trim());
+  }
+  return out;
+}
+
+const readFile = async (path) => {
+  const data = await fs.promises.readFile(path, "utf8");
+  return parseLines(data);
+};
+
+module.exports = { parseLines, readFile };

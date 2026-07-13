@@ -8,28 +8,53 @@ import (
 )
 
 type Match struct {
-	ProfileID   string `json:"profile_id"`
-	ProfileName string `json:"profile_name"`
-	DataType    string `json:"data_type"`
-	Verdict     string `json:"verdict_on_match"` // configured verdict (e.g. BLOCK)
-	Confidence  int    `json:"confidence"`       // representative confidence
+	ProfileID   string   `json:"profile_id"`
+	ProfileName string   `json:"profile_name"`
+	DataType    string   `json:"data_type"`
+	Confidence  int      `json:"confidence"` // representative confidence (0-100)
+	Rules       []string `json:"rules"`      // contributing leaf detector (rule) IDs
 }
 
-// Evaluate returns the profiles that match the given detector results.
+// Evaluate returns the profiles that match the given detector results. Each
+// match reports its representative confidence and the leaf rule IDs that
+// satisfied it — evidence for a downstream policy engine, not an action.
 func Evaluate(db *rules.DB, results map[string]*scan.Result) []Match {
 	var out []Match
 	for _, p := range db.Profiles {
 		if eval(p.Match, results) {
+			var rules []string
+			contributing(p.Match, results, &rules)
 			out = append(out, Match{
 				ProfileID:   p.ProfileID,
 				ProfileName: p.ProfileName,
 				DataType:    p.DataType,
-				Verdict:     p.VerdictOnMatch,
 				Confidence:  confidence(p.Match, results),
+				Rules:       rules,
 			})
 		}
 	}
 	return out
+}
+
+// contributing collects the leaf detector IDs that satisfied a matched tree:
+// every child of an AND, only the matched children of an OR.
+func contributing(n rules.Node, res map[string]*scan.Result, out *[]string) {
+	switch n.Op {
+	case "detector":
+		if eval(n, res) {
+			*out = append(*out, n.ID)
+		}
+	case "and":
+		for _, ch := range n.Of {
+			contributing(ch, res, out)
+		}
+	case "or":
+		for _, ch := range n.Of {
+			if eval(ch, res) {
+				contributing(ch, res, out)
+			}
+		}
+	}
 }
 
 func eval(n rules.Node, res map[string]*scan.Result) bool {
@@ -70,7 +95,7 @@ func eval(n rules.Node, res map[string]*scan.Result) bool {
 }
 
 // confidence: representative score of a matched profile = the max confidence
-// among contributing (satisfied) detectors. Used to choose BLOCK vs ESCALATE.
+// among contributing (satisfied) detectors. Reported as the match strength.
 func confidence(n rules.Node, res map[string]*scan.Result) int {
 	switch n.Op {
 	case "detector":

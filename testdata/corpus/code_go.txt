@@ -1,0 +1,29 @@
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+type Counter struct {
+	counts map[string]int
+}
+
+func NewCounter() *Counter {
+	return &Counter{counts: make(map[string]int)}
+}
+
+func (c *Counter) Add(word string) {
+	c.counts[strings.ToLower(word)]++
+}
+
+func main() {
+	c := NewCounter()
+	for _, w := range []string{"a", "b", "a"} {
+		c.Add(w)
+	}
+	if len(c.counts) == 0 {
+		return
+	}
+	fmt.Println(c.counts)
+}

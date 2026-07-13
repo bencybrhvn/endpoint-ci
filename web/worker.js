@@ -22,11 +22,11 @@ const go = new Go();
 onmessage = async (e) => {
   const m = e.data;
   if (m.type !== 'inspect') return;
-  let verdict;
+  let report;
   try {
-    verdict = await self.chInspect(m.name, m.bytes); // chInspect returns a Promise
+    report = await self.chInspect(m.name, m.bytes); // chInspect returns a Promise
   } catch (err) {
-    verdict = JSON.stringify({ verdict: 'ESCALATE', error: String(err) });
+    report = JSON.stringify({ error: String(err) });
   }
-  postMessage({ type: 'result', id: m.id, verdict });
+  postMessage({ type: 'result', id: m.id, report });
 };

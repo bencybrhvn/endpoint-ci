@@ -1,4 +1,11 @@
-// Package engine orchestrates the inspection pipeline and builds a verdict.
+// Package engine orchestrates the inspection pipeline and builds a match report.
+//
+// This component INSPECTS and REPORTS only. It never decides an action
+// (block/allow/quarantine): those are policy decisions made outside this
+// component. The report says what was found — which profiles/data-types matched,
+// how strongly, the contributing rules, sensitivity labels, and neutral facts
+// about the scan (coverage, readability) — and a downstream policy engine
+// decides what to do about it.
 package engine
 
 import (
@@ -15,21 +22,23 @@ import (
 	"github.com/cyberhaven/endpoint-ci/internal/scan"
 )
 
-// Dispositions (spec §4.6). PoC reports — never enacts.
+// Coverage describes how much of the content was inspected — a neutral fact for
+// the policy layer, not an action.
 const (
-	Allow    = "ALLOW"
-	Block    = "BLOCK"
-	Escalate = "ESCALATE"
+	CoverageFull      = "full"      // whole extracted body inspected
+	CoveragePartial   = "partial"   // size gate: only head/tail windows inspected
+	CoverageTruncated = "truncated" // extracted text hit the MaxBytes cap
 )
 
-type Verdict struct {
+// Report is the output of inspecting one file: the matches found and neutral
+// facts about the scan. It carries no verdict/action.
+type Report struct {
 	File         string            `json:"file"`
-	Disposition  string            `json:"verdict"`
-	ScanPath     string            `json:"scan_path"`
+	ScanPath     string            `json:"scan_path"` // always "local"
 	FileType     string            `json:"file_type"`
 	BytesSeen    int               `json:"bytes_seen"`
-	Truncated    bool              `json:"truncated,omitempty"`
-	Partial      bool              `json:"partial_coverage,omitempty"`
+	Readable     bool              `json:"readable"` // false: encrypted/corrupt/binary — no body inspected
+	Coverage     string            `json:"coverage"` // full | partial | truncated
 	ShortCircuit bool              `json:"short_circuited,omitempty"`
 	Note         string            `json:"note,omitempty"`
 	ScanMicros   int64             `json:"scan_duration_us"`
@@ -38,35 +47,34 @@ type Verdict struct {
 	Detectors    []DetectorFinding `json:"detectors"`
 }
 
-// severity orders dispositions so labels can upgrade the verdict (BLOCK>ESCALATE>ALLOW).
-func severity(d string) int {
-	switch d {
-	case Block:
-		return 2
-	case Escalate:
-		return 1
-	}
-	return 0
-}
+// Matched reports whether any profile matched — a convenience for callers, not a
+// policy signal.
+func (r Report) Matched() bool { return len(r.Profiles) > 0 }
 
-func upgrade(cur, want string) string {
-	if severity(want) > severity(cur) {
-		return want
+// HighConfidence reports whether any matched profile reached the given
+// reporting-quality threshold. Used for summaries and early-exit; the policy
+// engine may apply its own thresholds on top of the raw confidence scores.
+func (r Report) HighConfidence(threshold int) bool {
+	for _, m := range r.Profiles {
+		if m.Confidence >= threshold {
+			return true
+		}
 	}
-	return cur
+	return false
 }
 
 type DetectorFinding struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	RawCount       int    `json:"raw_count"`
-	ValidatedCount int    `json:"validated_count"`
-	Confidence     int    `json:"confidence"`
+	ID             string   `json:"id"` // rule_id (passes through unmodified)
+	Name           string   `json:"name"`
+	DataTypes      []string `json:"data_types"` // dataset_id(s) (pass through unmodified)
+	RawCount       int      `json:"raw_count"`
+	ValidatedCount int      `json:"validated_count"`
+	Confidence     int      `json:"confidence"`
 }
 
 // orderByPriority sorts detectors so the strongest, most decisive ones run first
 // (validator-backed and high base confidence), best-effort last. This makes the
-// early-exit fire after the first batch on most BLOCK files.
+// early-exit fire after the first batch on most match-dense files.
 func orderByPriority(dets []*rules.Detector) []*rules.Detector {
 	out := make([]*rules.Detector, len(dets))
 	copy(out, dets)
@@ -84,27 +92,9 @@ func orderByPriority(dets []*rules.Detector) []*rules.Detector {
 	return out
 }
 
-// profileDisposition is a matched profile's effective verdict: confidence vs the
-// block threshold, then capped by the profile's configured verdict_on_match
-// ceiling (e.g. EMAIL caps at ESCALATE so a lone address never hard-BLOCKs).
-func profileDisposition(m profile.Match, threshold int) string {
-	d := Escalate
-	if m.Confidence >= threshold {
-		d = Block
-	}
-	ceiling := m.Verdict
-	if ceiling == "" {
-		ceiling = Block
-	}
-	if severity(d) > severity(ceiling) {
-		d = ceiling
-	}
-	return d
-}
-
-func hasBlock(matches []profile.Match, threshold int) bool {
+func hasHighConfidence(matches []profile.Match, threshold int) bool {
 	for _, m := range matches {
-		if profileDisposition(m, threshold) == Block {
+		if m.Confidence >= threshold {
 			return true
 		}
 	}
@@ -112,74 +102,68 @@ func hasBlock(matches []profile.Match, threshold int) bool {
 }
 
 // InspectFile reads a file, detects its format, extracts text, then inspects.
-// Extraction failure (encrypted/unsupported/corrupt) degrades to ESCALATE.
-func InspectFile(path string, db *rules.DB, cfg extract.Config) (Verdict, error) {
+func InspectFile(path string, db *rules.DB, cfg extract.Config) (Report, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Verdict{}, err
+		return Report{}, err
 	}
 	return InspectData(path, data, db, cfg), nil
 }
 
 // InspectData inspects an in-memory file: detect → extract → label → scan →
-// verdict. No filesystem access, so it works in browser/WASM (where bytes come
+// report. No filesystem access, so it works in browser/WASM (where bytes come
 // from JS) as well as on the endpoint.
-func InspectData(name string, data []byte, db *rules.DB, cfg extract.Config) Verdict {
+func InspectData(name string, data []byte, db *rules.DB, cfg extract.Config) Report {
 	res := extract.Extract(data, cfg)
 
 	// Sensitivity-label fast-path (OOXML docProps / PDF XMP) runs on the raw bytes
 	// regardless of text extraction — a labelled-but-unparseable doc must still be
-	// caught. Metadata labels are machine-written → authoritative → BLOCK.
+	// reported. Metadata labels are machine-written, so they carry Source=metadata
+	// for the policy layer to weigh.
 	meta := label.Metadata(data, res.Type, db.LabelMarkers)
 
-	// No body to scan. Distinguish:
-	//   - unsupported/binary type → ALLOW (nothing to inspect; not our content)
-	//   - encrypted / corrupt     → ESCALATE (likely a doc we just can't read)
-	// A metadata label still BLOCKs in either case.
+	// No body to scan: report readable=false plus whatever the metadata fast-path
+	// found. Unsupported/binary vs encrypted/corrupt is distinguished only in the
+	// note — both are simply "no body inspected" as far as the report is concerned.
 	if res.Err != "" {
-		disp, note := Escalate, "extraction failed, escalate: "+res.Err
+		r := Report{File: name, ScanPath: "local", FileType: res.Type.String(),
+			BytesSeen: len(data), Readable: false, Coverage: CoverageFull, Labels: meta, Note: res.Err}
 		if res.Type == format.Unsupported {
-			disp, note = Allow, "unsupported/binary type — not content-inspected"
+			r.Note = "unsupported/binary type — not content-inspected"
 		}
-		v := Verdict{File: name, ScanPath: "local", FileType: res.Type.String(),
-			BytesSeen: len(data), Disposition: disp, Labels: meta, Note: note}
 		if len(meta) > 0 {
-			v.Disposition = Block
-			v.Note = "sensitivity label present in metadata (body not extractable)"
+			r.Note = "sensitivity label present in metadata (body not extractable)"
 		}
-		return v
+		return r
 	}
 
-	v := Inspect(name, res.Text, db)
-	v.FileType = res.Type.String()
-	v.Truncated = res.Truncated
-	v.Partial = res.Partial
+	r := Inspect(name, res.Text, db)
+	r.FileType = res.Type.String()
+	switch {
+	case res.Partial:
+		r.Coverage = CoveragePartial
+	case res.Truncated:
+		r.Coverage = CoverageTruncated
+	default:
+		r.Coverage = CoverageFull
+	}
 
 	if len(meta) > 0 {
-		v.Labels = append(meta, v.Labels...)
-		v.Disposition = upgrade(v.Disposition, Block)
-		if v.Note == "" {
-			v.Note = "sensitivity label present in document metadata"
+		r.Labels = append(meta, r.Labels...)
+		if r.Note == "" {
+			r.Note = "sensitivity label present in document metadata"
 		}
 	}
-
-	// Incomplete coverage (size gate or truncation): a clean verdict is only
-	// "clean for what we saw" — escalate rather than ALLOW so the middle isn't
-	// silently passed.
-	if (res.Partial || res.Truncated) && v.Disposition == Allow {
-		v.Disposition = Escalate
-		v.Note = "incomplete coverage (size gate / truncation): escalate for full inspection"
-	}
-	return v
+	return r
 }
 
-// Inspect runs detectors + profiles over text and builds a verdict.
+// Inspect runs detectors + profiles over text and builds a match report.
 //
 // Detectors are evaluated in priority-ordered batches (strong, validator-backed
-// first). After each batch we re-evaluate profiles; if a BLOCK-confidence verdict
-// is already decided (or matches saturate), we short-circuit — the disposition
-// can't change, so the remaining detectors are pure cost.
-func Inspect(file, text string, db *rules.DB) Verdict {
+// first). After each batch we re-evaluate profiles; once a high-confidence
+// profile has matched (or matches saturate) we short-circuit — a hot-path cost
+// optimisation. This can trim the reported profile set, so the flag is surfaced.
+func Inspect(file, text string, db *rules.DB) Report {
 	start := time.Now()
 
 	ctx := scan.NewCtx(text, db)
@@ -199,13 +183,13 @@ func Inspect(file, text string, db *rules.DB) Verdict {
 		if end > len(ordered) {
 			end = len(ordered)
 		}
-		for id, r := range ctx.ScanDetectors(db, ordered[i:end]) {
-			results[id] = r
-			totalMatches += r.RawCount
+		for id, rr := range ctx.ScanDetectors(db, ordered[i:end]) {
+			results[id] = rr
+			totalMatches += rr.RawCount
 		}
 		matches = profile.Evaluate(db, results)
 		if ee.Enabled {
-			if ee.StopOnBlock && hasBlock(matches, db.Conf.BlockThreshold) {
+			if ee.StopOnHighConfidence && hasHighConfidence(matches, db.Conf.HighConfidenceThreshold) {
 				shorted = true
 				break
 			}
@@ -217,17 +201,18 @@ func Inspect(file, text string, db *rules.DB) Verdict {
 	}
 	elapsed := time.Since(start)
 
-	v := Verdict{File: file, ScanPath: "local", BytesSeen: len(text),
-		ScanMicros: elapsed.Microseconds(), Profiles: matches, ShortCircuit: shorted}
+	r := Report{File: file, ScanPath: "local", BytesSeen: len(text), Readable: true,
+		Coverage: CoverageFull, ScanMicros: elapsed.Microseconds(), Profiles: matches,
+		ShortCircuit: shorted}
 	if shorted {
-		v.Note = "short-circuited: verdict already decided, remaining detectors skipped"
+		r.Note = "short-circuited: strong signal found, remaining detectors skipped"
 	}
 
 	// fired detectors, sorted by confidence desc for stable reporting
 	var fired []*scan.Result
-	for _, r := range results {
-		if r.Fired {
-			fired = append(fired, r)
+	for _, res := range results {
+		if res.Fired {
+			fired = append(fired, res)
 		}
 	}
 	sort.Slice(fired, func(i, j int) bool {
@@ -236,22 +221,18 @@ func Inspect(file, text string, db *rules.DB) Verdict {
 		}
 		return fired[i].ID < fired[j].ID
 	})
-	for _, r := range fired {
-		v.Detectors = append(v.Detectors, DetectorFinding{r.ID, r.Name, r.RawCount, r.ValidatedCount, r.Confidence})
+	for _, res := range fired {
+		var dts []string
+		if d, ok := db.Detector(res.ID); ok {
+			dts = d.DataTypes
+		}
+		r.Detectors = append(r.Detectors, DetectorFinding{res.ID, res.Name, dts,
+			res.RawCount, res.ValidatedCount, res.Confidence})
 	}
 
-	// Disposition = most severe across matched profiles, where each profile's
-	// verdict is its confidence-vs-threshold result capped by its configured
-	// verdict_on_match ceiling. ALLOW if no profile matched.
-	v.Disposition = Allow
-	for _, m := range matches {
-		v.Disposition = upgrade(v.Disposition, profileDisposition(m, db.Conf.BlockThreshold))
-	}
-
-	// Body-text sensitivity labels (distinctive markings) → at least ESCALATE.
+	// Body-text sensitivity labels (distinctive markings) — reported, not actioned.
 	if labels := label.Body(text, db.LabelMarkers); len(labels) > 0 {
-		v.Labels = append(v.Labels, labels...)
-		v.Disposition = upgrade(v.Disposition, Escalate)
+		r.Labels = append(r.Labels, labels...)
 	}
-	return v
+	return r
 }
