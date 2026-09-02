@@ -1,6 +1,6 @@
 # C-ABI façade over ch-inspect-core for embedding into non-Rust hosts: C# via P/Invoke on
-# Windows, Swift via a C header on macOS, C/C++ directly for Sentinel on Linux. Placeholder until
-# ch-inspect-core has enough of the pipeline ported to be worth exposing. Build with:
+# Windows, Swift via a C header on macOS, C/C++ directly for Sentinel on Linux. See
+# include/ch_inspect.h for the matching header. Build with:
 #   cargo build -p ch-inspect-ffi --profile release-ffi
 # (panic = "unwind", not the workspace-default "abort" — see ../Cargo.toml.)
 [package]
@@ -15,3 +15,5 @@ crate-type = ["cdylib"]
 
 [dependencies]
 ch-inspect-core = { path = "../core" }
+# Reports cross the FFI boundary as JSON (see src/lib.rs) rather than a hand-mirrored C struct.
+serde_json = "1"

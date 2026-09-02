@@ -191,6 +191,7 @@ name = "ch-inspect-ffi"
 version = "0.1.0"
 dependencies = [
  "ch-inspect-core",
+ "serde_json",
 ]
 
 [[package]]
