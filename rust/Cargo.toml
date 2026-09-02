@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = ["core", "cli", "ffi"]
+
+# Size-optimised default, matching dataflow/Sensors/AI/cyberhaven-agent-inspector — this runs on
+# the endpoint, so binary size and startup cost matter (see ../CLAUDE.md resource budget).
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# The ffi crate must build with panic = "unwind": an unwind that crosses an extern "C" boundary
+# into a non-Rust host (C#, Swift, C/C++) is process corruption, not a recoverable error, so every
+# exported fn wraps its body in catch_unwind instead — same pattern as the `ca` crate in
+# cyberhaven-agent-inspector. Build the ffi crate explicitly with:
+#   cargo build -p ch-inspect-ffi --profile release-ffi
+[profile.release-ffi]
+inherits = "release"
+panic = "unwind"

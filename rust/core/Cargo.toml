@@ -1,0 +1,45 @@
+# Rust port of the Go reference engine (../../internal/{rules,format,extract,prefilter,scan,
+# validators,label,profile,engine}). No FFI, no I/O policy — this is the part every host embeds.
+# Dependency-light on purpose: justify every addition against the endpoint budget (../../CLAUDE.md).
+[package]
+name = "ch-inspect-core"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "ch_inspect_core"
+
+[dependencies]
+# Aho-Corasick literal prefilter (internal/prefilter hand-rolled its own automaton in Go for lack
+# of a suitable stdlib type; Rust has a mature, well-tested crate for exactly this from the same
+# author as the `regex` crate below, so use it instead of hand-rolling).
+aho-corasick = "1"
+# Go's regexp package IS an RE2 implementation; this crate enforces the same restricted feature
+# set (no backreferences/lookaround) for the same linear-time guarantee, so Regex::new succeeding
+# is the direct Rust equivalent of Go's regexp.Compile succeeding — the LOCAL_CAPABLE check.
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# OOXML (DOCX/XLSX/PPTX) is a zip container in both Go (archive/zip, stdlib) and here — format
+# detection only needs the entry names, extract.rs (later) reads entry contents from the same crate.
+zip = { version = "2", default-features = false, features = ["deflate"] }
+# PDF text-layer extraction. The Go original chose ledongthuc/pdf (pure Go, MIT) specifically to
+# avoid cgo/MuPDF and keep a single static binary (see ../../DECISIONS.md); pdf-extract is the
+# pure-Rust equivalent (no system font/graphics deps), same trade-off.
+pdf-extract = "0.9"
+# Independent, read-only detectors scan the same buffer in parallel (one of the four
+# optimisations that got the Go version under the latency budget, see ../../DECISIONS.md,
+# "Multi-pattern matcher to hit the 500KB latency budget"). Go hand-rolls a semaphore + goroutine
+# pool for this; rayon's parallel iterators are the standard, well-audited Rust equivalent.
+rayon = "1"
+# Streaming XML token reader for the OOXML docProps label fast-path — the direct equivalent of
+# Go's stdlib encoding/xml Decoder.Token(), which Rust has no stdlib substitute for.
+quick-xml = "0.37"
+# Already pulled in transitively via aho-corasick; promoted to a direct dependency for its
+# memmem substring search (label.rs's XMP-packet scan runs on full untrusted file bytes with no
+# size gate — see ../../DECISIONS.md's PDF XMP note — so it needs Go's bytes.Index performance,
+# not a naive O(n*m) scan).
+memchr = "2"
+
+[dev-dependencies]

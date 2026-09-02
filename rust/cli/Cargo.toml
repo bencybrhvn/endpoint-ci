@@ -1,0 +1,26 @@
+# Local dev/PoC harness — the Rust sibling of ../../cmd/ch-inspect. Exists so the core engine
+# stays runnable and demoable on its own, independent of whichever host embeds ch-inspect-ffi.
+[package]
+name = "ch-inspect-cli"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "ch-inspect"
+path = "src/main.rs"
+
+[dependencies]
+ch-inspect-core = { path = "../core" }
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"
+# --bench's peak-RSS reading (getrusage) — the same OS API Go's own maxRSSBytes() in
+# ../../cmd/ch-inspect/main.go calls via syscall.Getrusage. CLI-only: this is
+# process/OS-level plumbing, not something the portable core crate should depend on.
+libc = "0.2"
+# --scan's recursive directory walk with dot-dir pruning — the direct equivalent of Go's
+# stdlib filepath.WalkDir used in runScan.
+walkdir = "2"
+# --scan's --csv output — mirrors Go's stdlib encoding/csv (paths can contain commas/quotes,
+# so hand-rolled formatting would be a latent correctness bug).
+csv = "1"
