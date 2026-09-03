@@ -1,0 +1,19 @@
+# A non-enforcing Claude Code hook for the lab evaluation of ch_local_inspect against the real
+# Cyberhaven client (see ../../CLAUDE.md and the AI-prompt-security use case discussed alongside
+# ../ffi). Depends on ch-inspect-core directly, not ch-inspect-ffi -- this hook is a plain Rust
+# binary Claude Code invokes as a subprocess and feeds JSON on stdin, exactly like a hook written
+# in any other language, so there is no FFI boundary to cross.
+[package]
+name = "ch-inspect-claude-hook"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "ch-inspect-claude-hook"
+path = "src/main.rs"
+
+[dependencies]
+ch-inspect-core = { path = "../core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

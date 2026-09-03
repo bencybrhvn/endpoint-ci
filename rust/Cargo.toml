@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "cli", "ffi"]
+members = ["core", "cli", "ffi", "hooks"]
 
 # Size-optimised default, matching dataflow/Sensors/AI/cyberhaven-agent-inspector — this runs on
 # the endpoint, so binary size and startup cost matter (see ../CLAUDE.md resource budget).
