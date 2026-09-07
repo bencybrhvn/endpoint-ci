@@ -23,6 +23,7 @@ pub fn run(name: &str, s: &str) -> bool {
         "de_tax_check" => de_tax_id(s),
         "es_dni_check" => es_dni(s),
         "bsn_check" => nl_bsn(s),
+        "bic_country_check" => bic_country(s),
         _ => false,
     }
 }
@@ -320,6 +321,275 @@ fn dea(s: &str) -> bool {
     sum % 10 == dg(8)
 }
 
+/// Checks a SWIFT/BIC candidate's country-code field (characters 5-6) against the ISO 3166-1
+/// alpha-2 list. There's no algorithmic checksum for an arbitrary BIC -- it's a registry, not a
+/// check-digit scheme -- so this is the practical alternative: reject anything whose country
+/// position isn't a real country code, which an ordinary word that's merely BIC-shaped
+/// essentially never is by chance.
+fn bic_country(s: &str) -> bool {
+    let s = s.trim().to_uppercase();
+    if s.len() != 8 && s.len() != 11 {
+        return false;
+    }
+    is_iso3166_alpha2(&s[4..6])
+}
+
+/// The set of currently-assigned ISO 3166-1 alpha-2 country codes (249 entries) -- kept in sync
+/// with `iso3166Alpha2` in ../../../internal/validators/validators.go.
+fn is_iso3166_alpha2(cc: &str) -> bool {
+    matches!(
+        cc,
+        "AD" | "AE"
+            | "AF"
+            | "AG"
+            | "AI"
+            | "AL"
+            | "AM"
+            | "AO"
+            | "AQ"
+            | "AR"
+            | "AS"
+            | "AT"
+            | "AU"
+            | "AW"
+            | "AX"
+            | "AZ"
+            | "BA"
+            | "BB"
+            | "BD"
+            | "BE"
+            | "BF"
+            | "BG"
+            | "BH"
+            | "BI"
+            | "BJ"
+            | "BL"
+            | "BM"
+            | "BN"
+            | "BO"
+            | "BQ"
+            | "BR"
+            | "BS"
+            | "BT"
+            | "BV"
+            | "BW"
+            | "BY"
+            | "BZ"
+            | "CA"
+            | "CC"
+            | "CD"
+            | "CF"
+            | "CG"
+            | "CH"
+            | "CI"
+            | "CK"
+            | "CL"
+            | "CM"
+            | "CN"
+            | "CO"
+            | "CR"
+            | "CU"
+            | "CV"
+            | "CW"
+            | "CX"
+            | "CY"
+            | "CZ"
+            | "DE"
+            | "DJ"
+            | "DK"
+            | "DM"
+            | "DO"
+            | "DZ"
+            | "EC"
+            | "EE"
+            | "EG"
+            | "EH"
+            | "ER"
+            | "ES"
+            | "ET"
+            | "FI"
+            | "FJ"
+            | "FK"
+            | "FM"
+            | "FO"
+            | "FR"
+            | "GA"
+            | "GB"
+            | "GD"
+            | "GE"
+            | "GF"
+            | "GG"
+            | "GH"
+            | "GI"
+            | "GL"
+            | "GM"
+            | "GN"
+            | "GP"
+            | "GQ"
+            | "GR"
+            | "GS"
+            | "GT"
+            | "GU"
+            | "GW"
+            | "GY"
+            | "HK"
+            | "HM"
+            | "HN"
+            | "HR"
+            | "HT"
+            | "HU"
+            | "ID"
+            | "IE"
+            | "IL"
+            | "IM"
+            | "IN"
+            | "IO"
+            | "IQ"
+            | "IR"
+            | "IS"
+            | "IT"
+            | "JE"
+            | "JM"
+            | "JO"
+            | "JP"
+            | "KE"
+            | "KG"
+            | "KH"
+            | "KI"
+            | "KM"
+            | "KN"
+            | "KP"
+            | "KR"
+            | "KW"
+            | "KY"
+            | "KZ"
+            | "LA"
+            | "LB"
+            | "LC"
+            | "LI"
+            | "LK"
+            | "LR"
+            | "LS"
+            | "LT"
+            | "LU"
+            | "LV"
+            | "LY"
+            | "MA"
+            | "MC"
+            | "MD"
+            | "ME"
+            | "MF"
+            | "MG"
+            | "MH"
+            | "MK"
+            | "ML"
+            | "MM"
+            | "MN"
+            | "MO"
+            | "MP"
+            | "MQ"
+            | "MR"
+            | "MS"
+            | "MT"
+            | "MU"
+            | "MV"
+            | "MW"
+            | "MX"
+            | "MY"
+            | "MZ"
+            | "NA"
+            | "NC"
+            | "NE"
+            | "NF"
+            | "NG"
+            | "NI"
+            | "NL"
+            | "NO"
+            | "NP"
+            | "NR"
+            | "NU"
+            | "NZ"
+            | "OM"
+            | "PA"
+            | "PE"
+            | "PF"
+            | "PG"
+            | "PH"
+            | "PK"
+            | "PL"
+            | "PM"
+            | "PN"
+            | "PR"
+            | "PS"
+            | "PT"
+            | "PW"
+            | "PY"
+            | "QA"
+            | "RE"
+            | "RO"
+            | "RS"
+            | "RU"
+            | "RW"
+            | "SA"
+            | "SB"
+            | "SC"
+            | "SD"
+            | "SE"
+            | "SG"
+            | "SH"
+            | "SI"
+            | "SJ"
+            | "SK"
+            | "SL"
+            | "SM"
+            | "SN"
+            | "SO"
+            | "SR"
+            | "SS"
+            | "ST"
+            | "SV"
+            | "SX"
+            | "SY"
+            | "SZ"
+            | "TC"
+            | "TD"
+            | "TF"
+            | "TG"
+            | "TH"
+            | "TJ"
+            | "TK"
+            | "TL"
+            | "TM"
+            | "TN"
+            | "TO"
+            | "TR"
+            | "TT"
+            | "TV"
+            | "TW"
+            | "TZ"
+            | "UA"
+            | "UG"
+            | "UM"
+            | "US"
+            | "UY"
+            | "UZ"
+            | "VA"
+            | "VC"
+            | "VE"
+            | "VG"
+            | "VI"
+            | "VN"
+            | "VU"
+            | "WF"
+            | "WS"
+            | "YE"
+            | "YT"
+            | "ZA"
+            | "ZM"
+            | "ZW"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -332,11 +602,24 @@ mod tests {
             ("es_dni_check", "12345678Z", "12345678A"),
             ("bsn_check", "111222333", "111222334"),
             ("de_tax_check", "86095742719", "86095742718"),
+            ("bic_country_check", "DEUTDEFF", "DEUTXXFF"), // well-known BIC; XX isn't a country
         ];
         for (name, good, bad) in cases {
             assert!(run(name, good), "{name}: {good:?} should be valid");
             assert!(!run(name, bad), "{name}: {bad:?} should be invalid");
         }
+    }
+
+    #[test]
+    fn bic_country() {
+        assert!(run("bic_country_check", "DEUTDEFF"));
+        assert!(run("bic_country_check", "DEUTDEFF500")); // 11-char branch form
+        assert!(run("bic_country_check", "deutdeff")); // lowercase input
+        assert!(!run("bic_country_check", "DEUTXXFF")); // XX isn't an ISO 3166-1 alpha-2 code
+        // Real Nucleuz-corpus false positives: ordinary capitalized words, BIC-shaped by
+        // coincidence, whose country-code position isn't a real country.
+        assert!(!run("bic_country_check", "EXTERIOR"));
+        assert!(!run("bic_country_check", "APPLICATION"));
     }
 
     #[test]

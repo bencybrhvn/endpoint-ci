@@ -14,6 +14,7 @@ func TestNationalIDValidators(t *testing.T) {
 		{"es_dni_check", "12345678Z", "12345678A"}, // Spain DNI
 		{"bsn_check", "111222333", "111222334"},    // Netherlands BSN
 		{"de_tax_check", "86095742719", "86095742718"},
+		{"bic_country_check", "DEUTDEFF", "DEUTXXFF"}, // well-known BIC; XX isn't a real country
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -24,6 +25,25 @@ func TestNationalIDValidators(t *testing.T) {
 				t.Errorf("%s: %q should be invalid", c.name, c.bad)
 			}
 		})
+	}
+}
+
+func TestBICCountry(t *testing.T) {
+	cases := []struct {
+		s    string
+		want bool
+	}{
+		{"DEUTDEFF", true},     // 8-char, real country code (DE)
+		{"DEUTDEFF500", true},  // 11-char branch form
+		{"deutdeff", true},     // lowercase input
+		{"DEUTXXFF", false},    // XX isn't an ISO 3166-1 alpha-2 code
+		{"EXTERIOR", false},    // real Nucleuz-corpus false positive: an 8-char capitalized
+		{"APPLICATION", false}, // word, BIC-shaped by coincidence, country field isn't real
+	}
+	for _, c := range cases {
+		if got := Run("bic_country_check", c.s); got != c.want {
+			t.Errorf("bic_country_check(%q) = %v, want %v", c.s, got, c.want)
+		}
 	}
 }
 
