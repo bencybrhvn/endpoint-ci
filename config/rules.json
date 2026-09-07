@@ -635,7 +635,8 @@
         "\\bAIza[0-9A-Za-z_-]{35}\\b",
         "\\bgh[pousr]_[A-Za-z0-9]{36,}\\b",
         "\\bxox[baprs]-[A-Za-z0-9-]{10,}\\b",
-        "\\b(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{16,}\\b"
+        "\\b(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{16,}\\b",
+        "\\bgithub_pat_[A-Za-z0-9_]{20,}\\b"
       ],
       "validators": [],
       "keywords": [
@@ -647,7 +648,7 @@
         "access"
       ],
       "base_confidence": 80,
-      "notes": "Vendor-prefixed keys (AWS, Google, GitHub, Slack, Stripe).",
+      "notes": "Vendor-prefixed keys (AWS, Google, GitHub classic + fine-grained PAT, Slack, Stripe).",
       "prefilter": {
         "literals": [
           "AKIA",
@@ -667,7 +668,8 @@
           "sk_live",
           "sk_test",
           "pk_live",
-          "pk_test"
+          "pk_test",
+          "github_pat_"
         ]
       }
     },
@@ -1068,6 +1070,123 @@
           "base_confidence": 55
         }
       }
+    },
+    {
+      "id": "cloud_connection_string",
+      "name": "Database/Service Connection String (embedded credentials)",
+      "group": "secret",
+      "data_types": [
+        "DT_Technical_Keys_Secrets"
+      ],
+      "patterns": [
+        "\\b(?:mongodb(?:\\+srv)?|postgres(?:ql)?|mysql|redis|amqp|ftps?|sftp)://[^:/\\s@]+:[^@/\\s]+@[^\\s/]+"
+      ],
+      "validators": [],
+      "keywords": [],
+      "base_confidence": 85,
+      "notes": "Any of these URI schemes with an embedded user:pass@ segment is essentially always a real credential leak, not prose -- self-anchoring, no keyword gate needed.",
+      "prefilter": {
+        "literals": [
+          "mongodb://",
+          "mongodb+srv://",
+          "postgres://",
+          "postgresql://",
+          "mysql://",
+          "redis://",
+          "amqp://",
+          "ftp://",
+          "ftps://",
+          "sftp://"
+        ]
+      }
+    },
+    {
+      "id": "azure_storage_key",
+      "name": "Azure Storage Account Key",
+      "group": "secret",
+      "data_types": [
+        "DT_Technical_Keys_Secrets"
+      ],
+      "patterns": [
+        "\\bAccountKey=[A-Za-z0-9+/]{60,100}={0,2}"
+      ],
+      "validators": [],
+      "keywords": [],
+      "base_confidence": 85,
+      "notes": "Azure Storage connection strings embed the key literally after 'AccountKey=' -- self-anchoring, no separate context needed.",
+      "prefilter": {
+        "literals": [
+          "AccountKey="
+        ]
+      }
+    },
+    {
+      "id": "gcp_service_account",
+      "name": "GCP Service Account Identifier",
+      "group": "secret",
+      "data_types": [
+        "DT_Technical_Keys_Secrets"
+      ],
+      "patterns": [
+        "\\b[a-z0-9-]+@[a-z0-9-]+\\.iam\\.gserviceaccount\\.com\\b"
+      ],
+      "validators": [],
+      "keywords": [],
+      "base_confidence": 70,
+      "notes": "The service-account email itself isn't secret, but its presence strongly indicates GCP service-account key material nearby (the embedded PEM private key in the same JSON file already fires private_key at much higher confidence).",
+      "prefilter": {
+        "literals": [
+          ".iam.gserviceaccount.com"
+        ]
+      }
+    },
+    {
+      "id": "generic_secret_assignment",
+      "name": "Generic Secret/Credential Assignment",
+      "group": "secret",
+      "data_types": [
+        "DT_Technical_Keys_Secrets"
+      ],
+      "patterns": [
+        "(?i)(?:password|passwd|pwd|api[_-]?key|access[_-]?key|secret[_-]?key|client[_-]?secret|auth[_-]?token|token|secret)\\s*[:=]\\s*\\S{4,}"
+      ],
+      "validators": [],
+      "keywords": [
+        "password",
+        "passwd",
+        "pwd",
+        "api key",
+        "access key",
+        "secret key",
+        "client secret",
+        "auth token",
+        "token",
+        "secret",
+        "credentials"
+      ],
+      "base_confidence": 45,
+      "best_effort": true,
+      "notes": "No structural signature exists for an arbitrary secret value -- best-effort '<name>: <value>' assignment heuristic keyed on common variable names (password, api_key, token, secret, ...), deliberately kept below the high-confidence threshold. No leading \\b before the keyword: real env-var names are usually SCREAMING_SNAKE_CASE (MYSQL_PASSWORD, ATLAS_API_KEY), and '_' is a word character, so a \\b there would reject the underscore-prefixed form entirely (found via the Nucleuz corpus -- MongoDB/MySQL/Postgres/GitHub 'basic' fixtures are plain NAME=opaque-value pairs with no vendor-distinctive format, same as a password)."
+    },
+    {
+      "id": "certificate",
+      "name": "X.509 Certificate (PEM)",
+      "group": "secret",
+      "data_types": [
+        "DT_Technical_Keys_Secrets"
+      ],
+      "patterns": [
+        "-----BEGIN CERTIFICATE-----"
+      ],
+      "validators": [],
+      "keywords": [],
+      "base_confidence": 50,
+      "notes": "A bare certificate is public by design (no private key material) -- deliberately kept at the reporting floor, below high-confidence. Mainly useful as a coverage/context signal: certs often travel alongside a private key, which fires separately at much higher confidence.",
+      "prefilter": {
+        "literals": [
+          "BEGIN CERTIFICATE"
+        ]
+      }
     }
   ],
   "profiles": [
@@ -1464,6 +1583,26 @@
           {
             "op": "detector",
             "id": "jwt"
+          },
+          {
+            "op": "detector",
+            "id": "cloud_connection_string"
+          },
+          {
+            "op": "detector",
+            "id": "azure_storage_key"
+          },
+          {
+            "op": "detector",
+            "id": "gcp_service_account"
+          },
+          {
+            "op": "detector",
+            "id": "generic_secret_assignment"
+          },
+          {
+            "op": "detector",
+            "id": "certificate"
           }
         ]
       }
