@@ -391,9 +391,15 @@ mod tests {
         let th = db.conf.high_confidence_threshold;
         let text = make_large(200 * 1024);
 
+        // stop_on_high_confidence defaults to false now (see rules.json early_exit._note: it was
+        // skipping best_effort detectors whenever an earlier, stronger signal already matched,
+        // not just outranking them), so a saturated buffer no longer short-circuits on confidence
+        // alone. Lower max_total_matches to exercise the remaining trigger -- the
+        // pathological-input safety valve -- directly.
+        db.conf.early_exit.max_total_matches = 10;
         let v = inspect("dense", &text, &db);
         assert!(v.high_confidence(th), "expected a high-confidence match on a saturated buffer");
-        assert!(v.short_circuited, "expected short-circuit on a saturated buffer");
+        assert!(v.short_circuited, "expected short-circuit once max_total_matches is exceeded");
 
         db.conf.early_exit.enabled = false;
         let full = inspect("dense", &text, &db);

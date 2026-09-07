@@ -10,9 +10,10 @@
     "keyword_window": 200,
     "default_fire_threshold": 50,
     "early_exit": {
+      "_note": "stop_on_high_confidence disabled 2026-09: order_by_priority always sorts best_effort detectors (bank_account, postal_address, mrn, us/uk_passport, uk_drivers_license, ...) into the last batch(es), so stopping the moment ANY high-confidence profile matched meant those detectors were skipped, not just outranked, whenever a file also carried an earlier, stronger signal (e.g. an SSN or email alongside a passport number). Measured on the Nucleuz corpus: turning this off took the ~28-implemented-policy recall from 28.1% to 47.4%, at the cost of false-positive rate 7.6%->15.2% and p95/p90 real-file latency ~1.5x (still ~8ms, two orders of magnitude under every CLAUDE.md budget tier including the ~2s AI-hook decision ceiling). max_total_matches is a separate, still-active safety valve for pathological/match-dense input; it was never the binding constraint on this corpus.",
       "enabled": true,
       "max_total_matches": 1000,
-      "stop_on_high_confidence": true
+      "stop_on_high_confidence": false
     },
     "high_confidence_threshold": 65
   },
@@ -422,7 +423,7 @@
       ],
       "patterns": [
         "\\b[0-9]{9}\\b",
-        "\\b[A-Z][0-9]{8}\\b"
+        "(?i)\\b[A-Z][0-9]{8}\\b"
       ],
       "validators": [],
       "keywords": [
@@ -430,7 +431,7 @@
       ],
       "base_confidence": 45,
       "best_effort": true,
-      "notes": "9 digits is generic; keyword-gated.",
+      "notes": "9 digits is generic; keyword-gated. Letter-prefix form is case-insensitive (seen lowercase in real fixtures, e.g. 'c60101010').",
       "prefilter": {
         "needs_digit": true
       }
@@ -742,7 +743,8 @@
         "DT_PII_Personal_Data"
       ],
       "patterns": [
-        "\\b[A-Z0-9]{6,20}\\b"
+        "\\b[A-Z]{0,2}[0-9]{5,9}[A-Z]{0,2}\\b",
+        "\\b[0-9]{3}[ -][0-9]{3}[ -][0-9]{3}\\b"
       ],
       "validators": [],
       "keywords": [
@@ -755,7 +757,7 @@
       ],
       "base_confidence": 45,
       "best_effort": true,
-      "notes": "State formats vary wildly; generic + keyword-gated, low confidence."
+      "notes": "State formats vary wildly; this covers the common letter-prefix/suffix + 5-9 digit core shape, plus a grouped-digits form (e.g. '192 837 465'). The old [A-Z0-9]{6,20} had no mandatory digit, so it matched ordinary capitalized words (REQUIREMENTS, SIGNATURE, ...) near the keyword 'license' -- found via the Nucleuz corpus (100% false-positive rate on its own NonMatches folder). (Tightened the grouped form from {2,4}-{2,4}-{2,4} to exactly 3-3-3 after it matched a plain date like '04-05-1988' in testing -- 2-2-4 grouping is a date, not evidenced as a license format here.)"
     },
     {
       "id": "us_medicare_mbi",
@@ -833,7 +835,7 @@
         "DT_PII_Personal_Data"
       ],
       "patterns": [
-        "\\b[12]\\d{14}\\b"
+        "\\b[12]\\d{12}[ -]?\\d{2}\\b"
       ],
       "validators": [
         "nir_check"
@@ -848,7 +850,8 @@
       "base_confidence": 50,
       "prefilter": {
         "needs_digit": true
-      }
+      },
+      "notes": "13 digits + an optional single space/dash + the 2-digit control key -- the conventional way the key is set off in real documents (e.g. Nucleuz's own INSEE fixture: '2400763757265 51'). nir_check strips separators before computing the key, so no validator change needed."
     },
     {
       "id": "de_tax_id",

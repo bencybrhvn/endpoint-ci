@@ -145,15 +145,22 @@ func TestEarlyExit(t *testing.T) {
 	}
 	th := db.Conf.HighConfidenceThreshold
 	text := makeLarge(200 * 1024) // dense PII in every block
+
+	// stop_on_high_confidence defaults to false now (see rules.json early_exit._note: it was
+	// skipping best_effort detectors whenever an earlier, stronger signal already matched, not
+	// just outranking them), so a saturated buffer no longer short-circuits on confidence alone.
+	// Lower max_total_matches to exercise the remaining trigger -- the pathological-input safety
+	// valve -- directly.
+	db.Conf.EarlyExit.MaxTotalMatches = 10
 	v := Inspect("dense", text, db)
 	if !v.HighConfidence(th) {
 		t.Errorf("expected a high-confidence match on a saturated buffer")
 	}
 	if !v.ShortCircuit {
-		t.Errorf("expected short-circuit on a saturated buffer")
+		t.Errorf("expected short-circuit once max_total_matches is exceeded")
 	}
 
-	// With early-exit off, the same buffer must still match strongly (and report more).
+	// With early-exit off entirely, the same buffer must still match strongly (and report more).
 	db.Conf.EarlyExit.Enabled = false
 	full := Inspect("dense", text, db)
 	if !full.HighConfidence(th) {
