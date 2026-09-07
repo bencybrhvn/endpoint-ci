@@ -42,7 +42,7 @@
         "DT_PII_Personal_Data"
       ],
       "patterns": [
-        "\\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|3(?:0[0-5]|[68][0-9])[0-9]{11}|6(?:011|5[0-9]{2})[0-9]{12})\\b"
+        "\\b(?:4[0-9]{12}|4[0-9]{3}[ -]?[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{4}|5[1-5][0-9]{2}[ -]?[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{4}|3[47][0-9]{2}[ -]?[0-9]{6}[ -]?[0-9]{5}|3(?:0[0-5]|[68][0-9])[0-9][ -]?[0-9]{6}[ -]?[0-9]{4}|6(?:011|5[0-9]{2})[ -]?[0-9]{4}[ -]?[0-9]{4}[ -]?[0-9]{4})\\b"
       ],
       "validators": [
         "luhn_check"
@@ -58,7 +58,7 @@
         "credit"
       ],
       "base_confidence": 60,
-      "notes": "Major-network contiguous digits. Luhn kills most FPs.",
+      "notes": "Major-network digits, contiguous or grouped with a single space/dash between 4-digit blocks (the standard human-formatted case, e.g. '4111 1111 1111 1111'). Luhn kills most FPs; the validator strips separators before checksumming, so it already worked once the pattern captured them.",
       "prefilter": {
         "needs_digit": true
       }
@@ -153,7 +153,7 @@
         "sort code",
         "bank"
       ],
-      "base_confidence": 25,
+      "base_confidence": 45,
       "best_effort": true,
       "notes": "High FP; only fires with keyword context.",
       "prefilter": {
@@ -246,7 +246,7 @@
         "d.o.b",
         "birthday"
       ],
-      "base_confidence": 25,
+      "base_confidence": 45,
       "best_effort": true,
       "notes": "Matches dates generally; only DOB-confident with keyword context."
     },
@@ -268,7 +268,7 @@
         "zip",
         "postal"
       ],
-      "base_confidence": 30,
+      "base_confidence": 45,
       "best_effort": true
     },
     {
@@ -428,7 +428,7 @@
       "keywords": [
         "passport"
       ],
-      "base_confidence": 30,
+      "base_confidence": 45,
       "best_effort": true,
       "notes": "9 digits is generic; keyword-gated.",
       "prefilter": {
@@ -470,7 +470,7 @@
       "keywords": [
         "passport"
       ],
-      "base_confidence": 30,
+      "base_confidence": 45,
       "best_effort": true,
       "prefilter": {
         "needs_digit": true
@@ -492,7 +492,7 @@
         "unique taxpayer",
         "tax reference"
       ],
-      "base_confidence": 30,
+      "base_confidence": 45,
       "best_effort": true,
       "prefilter": {
         "needs_digit": true
@@ -516,7 +516,7 @@
         "patient id",
         "chart number"
       ],
-      "base_confidence": 30,
+      "base_confidence": 45,
       "best_effort": true,
       "notes": "Bare-number form only fires with keyword context.",
       "prefilter": {
@@ -612,7 +612,7 @@
         "insurance",
         "subscriber"
       ],
-      "base_confidence": 25,
+      "base_confidence": 45,
       "best_effort": true,
       "prefilter": {
         "needs_digit": true
@@ -753,7 +753,7 @@
         "dln",
         "dl#"
       ],
-      "base_confidence": 25,
+      "base_confidence": 45,
       "best_effort": true,
       "notes": "State formats vary wildly; generic + keyword-gated, low confidence."
     },
