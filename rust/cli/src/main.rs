@@ -5,12 +5,14 @@
 //! ch-inspect --rules config/rules.json --report            rule compatibility report
 //! ch-inspect --rules config/rules.json --bench <dir>       latency percentiles over a flat dir
 //! ch-inspect --rules config/rules.json --scan <dir>        real-world profile (recursive)
+//! ch-inspect --rules config/rules.json --cpu-soak <dir>    sustained CPU% vs a synthetic event stream
 //! ```
 
 mod bench;
 mod report;
 mod rss;
 mod scan;
+mod soak;
 
 use ch_inspect_core::{engine, extract, rules};
 use clap::Parser;
@@ -73,6 +75,28 @@ struct Cli {
     /// --scan: write per-file results to this CSV path.
     #[arg(long = "csv")]
     csv: Option<String>,
+
+    /// Sustained CPU-utilization soak: cycle files from this dir at --soak-rate for
+    /// --soak-duration-sec, checking the <=3% CPU budget in ../../CLAUDE.md.
+    #[arg(long = "cpu-soak")]
+    cpu_soak: Option<String>,
+
+    /// --cpu-soak: how long to run.
+    #[arg(long = "soak-duration-sec", default_value_t = 60)]
+    soak_duration_sec: u64,
+
+    /// --cpu-soak: assumed event arrival rate (events/sec) -- an adjustable input assumption,
+    /// not measured real-endpoint telemetry (none was available to ground this).
+    #[arg(long = "soak-rate", default_value_t = 1.0)]
+    soak_rate: f64,
+
+    /// --cpu-soak: CPU% sampling window.
+    #[arg(long = "soak-sample-sec", default_value_t = 1.0)]
+    soak_sample_sec: f64,
+
+    /// --cpu-soak: budget line to check the measured mean CPU% against.
+    #[arg(long = "soak-budget-pct", default_value_t = 3.0)]
+    soak_budget_pct: f64,
 }
 
 fn main() {
@@ -120,6 +144,17 @@ fn main() {
         scan::run_scan(&db, cfg, &opts);
         return;
     }
+    if let Some(dir) = &cli.cpu_soak {
+        let opts = soak::SoakOpts {
+            dir: dir.clone(),
+            duration: std::time::Duration::from_secs(cli.soak_duration_sec),
+            rate_per_sec: cli.soak_rate,
+            sample_interval: std::time::Duration::from_secs_f64(cli.soak_sample_sec),
+            budget_pct: cli.soak_budget_pct,
+        };
+        soak::run_soak(&db, cfg, &opts);
+        return;
+    }
     if let Some(file) = &cli.file {
         match engine::inspect_file(file, &db, cfg) {
             Ok(report) => println!("{}", serde_json::to_string_pretty(&report).expect("Report serialisation cannot fail")),
@@ -131,6 +166,6 @@ fn main() {
         return;
     }
 
-    eprintln!("usage: ch-inspect --rules <path> --file <path> | --report | --bench <dir> | --scan <dir>");
+    eprintln!("usage: ch-inspect --rules <path> --file <path> | --report | --bench <dir> | --scan <dir> | --cpu-soak <dir>");
     std::process::exit(2);
 }
