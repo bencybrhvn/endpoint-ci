@@ -1862,8 +1862,38 @@ impl<'a> Processor<'a> {
                                                as_num(&operation.operands[2]),
                                                as_num(&operation.operands[3])))
                 }
-                "s" | "f*" | "B" | "B*" | "b" => {
-                    dlog!("unhandled path op {:?}", operation);
+                // ENDPOINT-CI PATCH (see ../PATCH.md): THE root cause of the RSS spike this
+                // patch set out to fix. These path-painting operators were dispatched to a
+                // no-op branch that never called `path.ops.clear()` (unlike "S"/"F"/"f"/"n"
+                // just below, which all correctly clear after painting). Since "f*" (even-odd
+                // fill -- a completely standard, frequently-used operator, not obscure) is never
+                // cleared, `path.ops` accumulates every path-construction op for the rest of the
+                // content stream instead of just one shape's worth between paints. Measured: one
+                // real page with 83,420 "f*" calls and 446,041 cumulative path-construction ops
+                // (m/l/c/h) never released a single one of them until the whole stream finished,
+                // driving that page's Vec<PathOp> to hundreds of MB. Fixed by giving each
+                // operator the same fill/stroke-then-clear treatment as "S"/"F"/"f" already get.
+                // (This crate's `OutputDev::fill`/`stroke` take no fill-rule parameter, so "f" and
+                // "f*" were already indistinguishable in the existing code -- not a regression.)
+                "s" => {
+                    path.ops.push(PathOp::Close);
+                    output.stroke(&gs.ctm, &gs.stroke_colorspace, &gs.stroke_color, &path)?;
+                    path.ops.clear();
+                }
+                "f*" => {
+                    output.fill(&gs.ctm, &gs.fill_colorspace, &gs.fill_color, &path)?;
+                    path.ops.clear();
+                }
+                "B" | "B*" => {
+                    output.fill(&gs.ctm, &gs.fill_colorspace, &gs.fill_color, &path)?;
+                    output.stroke(&gs.ctm, &gs.stroke_colorspace, &gs.stroke_color, &path)?;
+                    path.ops.clear();
+                }
+                "b" => {
+                    path.ops.push(PathOp::Close);
+                    output.fill(&gs.ctm, &gs.fill_colorspace, &gs.fill_color, &path)?;
+                    output.stroke(&gs.ctm, &gs.stroke_colorspace, &gs.stroke_color, &path)?;
+                    path.ops.clear();
                 }
                 "S" => {
                     output.stroke(&gs.ctm, &gs.stroke_colorspace, &gs.stroke_color, &path)?;
