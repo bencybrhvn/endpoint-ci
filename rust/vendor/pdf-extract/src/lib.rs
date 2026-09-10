@@ -1594,6 +1594,25 @@ impl<'a> Processor<'a> {
     }
 
     fn process_stream(&mut self, doc: &'a Document, content: Vec<u8>, resources: &'a Dictionary, media_box: &MediaBox, output: &mut dyn OutputDev, page_num: u32) -> Result<(), OutputError> {
+        // ENDPOINT-CI PATCH (see ../PATCH.md): pre-flight size gate, calibrated against a survey
+        // of ~200 real PDFs (60 largest-by-size + 140 random from the Nucleuz corpus). Every
+        // legitimate content stream observed was <=804KB (decompressed); the two pathological
+        // cases that motivated this patch set were 2.29MB and 15.5MB -- a full order of magnitude
+        // above the largest legitimate case, with a clean gap between them and normal content.
+        // `Content::decode` (lopdf, one layer below) eagerly materializes the ENTIRE stream into
+        // one Vec<Operation> before this function's loop can even start, so the cost of a
+        // pathological stream is paid regardless of how efficiently the operations are then
+        // processed -- the only way to bound it is to not decode at all. Skips just THIS stream
+        // (a page or a Form), not the whole document: other pages/Forms still extract normally.
+        // Known limitation, not addressed here: there's no "coverage: partial" signal plumbed
+        // back up through this crate's Result type for a skip like this, so a caller can't
+        // currently tell a stream was dropped for size vs. simply containing no text -- flagged
+        // in PATCH.md as a possible follow-up, not implemented to avoid a bigger API change for
+        // an already-rare case (~0.1-0.2% of files in the survey).
+        const MAX_CONTENT_STREAM_BYTES: usize = 2_000_000;
+        if content.len() > MAX_CONTENT_STREAM_BYTES {
+            return Ok(());
+        }
         let content = Content::decode(&content).unwrap();
         let mut font_table = HashMap::new();
         let mut gs: GraphicsState = GraphicsState {
