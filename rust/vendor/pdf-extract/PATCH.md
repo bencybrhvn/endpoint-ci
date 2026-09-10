@@ -123,6 +123,86 @@ anymore). ~9% of files still exceed the strict 50MB `CLAUDE.md` budget line, mos
 50-105MB range rather than hundreds of MB — a real, still-open, but much softer residual than the
 one this patch set out to fix.
 
+## Residual ~9% investigated further (2026-09-10) — no viable fifth fix, documented as a known limit
+
+After fix 4, ~9% of the 200-file survey still exceeds the strict 50MB `CLAUDE.md` peak-RSS budget
+(50-105MB range). Dug into *why*, the same evidence-before-threshold way as fix 4, rather than
+guessing at a fifth fix. Conclusion: this residual isn't one bug with a clean cutoff — it's at
+least three distinct, smaller effects, none of which has the bimodal legitimate/pathological gap
+that made fix 4 possible.
+
+**Mechanism A — `lopdf::Document::load`'s whole-file object-graph load, dominated by tagged-PDF
+accessibility trees.** Instrumented `extract_text_from_mem` to return immediately after
+`Document::load_mem` (before any content processing), isolating load-time RSS from
+processing-time RSS. Two files in the survey are 88-92% load-driven:
+
+| File | objects | `/StructElem` | load-only RSS | full RSS | load's share |
+|---|---|---|---|---|---|
+| `El_Salvador_PII/.../SampleFile_Passport_002.pdf` | 14,843 | 14,799 | 51MB | 55MB | 92% |
+| `Colombia_PII/.../SampleFile_BankAccountNumber_001.pdf` | 21,604 | 20,134 | 75MB | 85MB | 88% |
+
+Both are Word/Excel-style tagged-PDF exports with one `/StructElem` object per table cell
+(`Table`/`TR`/`TD` structure, confirmed by grepping `/S` tag values). `lopdf::Document::load`
+materializes the *entire* object graph unconditionally, before `pdf-extract` ever reaches a page.
+This crate's `PlainTextOutput` never reads `StructTreeRoot`/`StructElem` — that memory buys
+nothing for text extraction. Architecturally the same shape as fix 4 (an eager parser paying for
+content we don't need) but one layer earlier, at document load rather than content-stream decode.
+
+**Mechanism B — allocator high-water-mark retention across many small streams, not a leak.**
+`Peru_PII/.../SampleFile_DriversLicense_001.pdf` has 1,032 distinct content streams, each
+individually well under the fix-4 gate (aggregate 8.25MB across all of them). 28MB of its 52MB
+peak RSS is load-time; the rest accumulates because each stream's `Vec<Operation>` is correctly
+dropped after that stream, but macOS's allocator doesn't necessarily hand freed pages back to the
+OS between drops — so peak *observed* RSS across hundreds of decode-then-drop cycles trends
+upward even though nothing is actually retained live. Not fixable by gating content; would need
+either a periodic OS-level "release free pages" call (`malloc_zone_pressure_relief` on macOS —
+platform-specific, not currently used anywhere in this codebase) or acceptance.
+
+**Mechanism C — the fix-4 byte threshold is a noisier cost proxy than the calibration assumed.**
+`Nigeria_PII/.../SampleFile_TaxID_001.pdf`: only 37 objects, 15.9MB load-only RSS (cheap, as
+expected) — but 78.5MB full RSS. One single content stream, 1.9MB (**under** the 2MB fix-4 gate,
+correctly left alone), costs ~62MB to decode and process — a ~32x blow-up from decompressed-byte
+count to processing cost. The 804KB-legitimate-case calibration implicitly assumed streams under
+the gate cost a bounded, modest amount; this shows decompressed byte count doesn't tightly bound
+processing cost on its own — operator density per byte varies more than the calibration data (a
+200-file sample, mostly *not* pathological) surfaced.
+
+**Followed the same discipline as fix 4 — surveyed before guessing at a threshold — and found no
+usable one.** Extended the 200-file survey with the PDF trailer's `/Size` (total object count,
+readable via a cheap regex scan, no full `lopdf` load needed) and `/StructElem` count:
+
+- **Raw `/Size` has no clean gap.** Under-budget files: p50 84, p90 1,335, max 7,554. Over-budget
+  files: min 37, p50 3,159, max 21,595. 153 of 182 under-budget files exceed the *smallest*
+  over-budget file's object count, and the largest under-budget file (7,554 objects, 36MB) sits
+  close to the smallest clearly object-count-driven pathological case (8,976 objects, 88MB, no
+  struct tree at all — plain object count alone, independent of struct trees, still costs
+  load-time RSS at a roughly similar ~3-5KB/object rate). The relationship looks close to
+  **linear**, not bimodal: cost scales with object count rather than clustering into "normal" vs
+  "extreme" groups the way content-stream bytes did.
+- **`/StructElem` count alone looks more promising but is too thin to trust.** Legitimate
+  struct-tree-bearing files topped out at 1,580 elements (23MB RSS); the smallest pathological
+  struct-heavy case had 5,636 (97MB RSS) — a >3.5x gap. But only ~10 files in the 200-file sample
+  carry a struct tree at all; this could be a real cliff or an artifact of which corpus files
+  happen to exist at which sizes. Not enough data to calibrate a threshold with the same
+  confidence as fix 4's 804KB/2.29MB split.
+
+**Decision: no fifth fix.** A threshold/exclusion gate is the right tool for a bimodal
+legitimate-vs-pathological split (fix 4's case). This residual is a continuous, roughly linear
+resource-scaling characteristic instead — any single cutoff either lets real pathological cases
+through or starts excluding ordinary complex documents (large but legitimate tagged-accessibility
+exports are not rare or adversarial; Word/Excel routinely produce them). Actually fixing Mechanism
+A would mean patching `lopdf`'s `Document`/`Dictionary` representation itself (skip or lazily load
+objects unreachable from `/Pages`, e.g. `/StructTreeRoot`) — a foundational parser change, much
+bigger and riskier than a targeted leaf-function patch like fixes 1-4, and out of scope here.
+
+**Status: accepted, documented, open.** ~9% of a real-world corpus sample exceeds the strict 50MB
+`CLAUDE.md` peak-RSS budget on complex/large PDFs (heavily-tagged accessibility exports, documents
+with very many small objects, or dense-but-under-threshold vector content) — now understood, not
+silently tolerated, but not further mitigated. If this becomes operationally significant, the
+next real lever is either the `lopdf` representation patch above, or the higher-level control the
+project has already flagged as missing for the embedded/FFI path: real per-file process isolation
+(the production host currently has no equivalent of `--scan --isolate`'s per-file isolation).
+
 ## How this was found
 
 Two custom-allocator diagnostics were tried; know the difference before writing a third:
