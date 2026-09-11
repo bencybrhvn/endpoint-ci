@@ -44,7 +44,7 @@ resource usage, measured directly, is the answer.
 | Phase | Use case | Status | Companion |
 |---|---|---|---|
 | 1 | AI-agent prompts (Claude Code hooks) | **Done** | `ch-inspect-claude-hook` (`rust/hooks`) |
-| 2 | Fast file-type scanning | **Done** (smoke-tested; not yet calibrated) | `ch-inspect-fs-watch` (`rust/fs-watch`) |
+| 2 | Fast file-type scanning | **Done** (calibrated: 300-file Nucleuz run) | `ch-inspect-fs-watch` (`rust/fs-watch`) |
 | 3 | Copy/paste | Not started | planned: clipboard-change poller |
 
 ## Phase 1 — AI-prompt hook (`rust/hooks`)
@@ -112,32 +112,83 @@ ch-inspect-fs-watch --rules config/rules.json --watch-dir <dir> \
     --duration-sec 120 --debounce-ms 300 --sample-interval-sec 1
 ```
 
-### Validation (2026-09-11)
+### Mechanism smoke test (2026-09-11)
 
 Ran end-to-end against a live directory with real file drops — not just unit tests — to confirm
 the FSEvents integration actually works: a clean-prose file, a file containing a card number +
-SSN, and a 44KB JSON file, dropped in over an 8-second window.
+SSN, and a 44KB JSON file, dropped in over an 8-second window. Debounce collapsed 11 raw
+filesystem events into 3 scans (one per file); detection fired correctly per file; peak RSS
+16.4MB, mean CPU 1.4% (8 samples only — a mechanism check, not a calibrated measurement).
 
-- **Debounce worked correctly**: 11 raw filesystem events collapsed into exactly 3 scans (one per
-  file), each scanned once its writes had quiesced.
-- **Detection fired correctly**: clean file → no profiles; card+SSN file → PCI + PII; the 44KB
-  file → PCI/PII/Secrets/Source-code (plausible for a JSON file this size with varied literal
-  content).
-- **Measured footprint**: peak RSS 16.4MB (budget ≤50MB), mean CPU 1.4% (budget ≤3%) — both
-  comfortably within budget, on a real run on this endpoint.
+### Calibrated run (2026-09-11): 300 real Nucleuz files, 9-minute window
 
-### Open items — this is a validated mechanism, not yet a calibrated measurement
+Sourced content from the real Nucleuz DLP policy test corpus (`~/Developer/nucleuz/...`,
+external/proprietary, not in this repo) instead of ad-hoc local files, specifically so this run's
+detections can eventually be compared against Nucleuz's own Matches/NonMatches ground truth for
+efficacy work. 300 files randomly sampled (seed 42) from the full ~3,733-file corpus (mixed
+types: txt/pdf/doc/docx/xlsx/odt/images), each copied into the watched directory with a
+**traceable flattened filename** (`{index}__{policy}__{Matches|NonMatches}__{original name}`) so
+detections can be mapped back to ground truth from the log alone, with no separate mapping file
+needed. Dropped one every 1.5s (450s total) into `ch-inspect-fs-watch --duration-sec 540
+--sample-interval-sec 1`, giving a ~90s idle tail for catch-up and clean end-of-run sampling.
 
-1. **Only an 8-second, 3-file smoke test so far.** The actual number worth reporting (comparable
-   to Phase 1's 90-invocation batch) needs a longer run driven by a **repeatable synthetic
-   file-drop** — a scripted sequence of real corpus files dropped at a controlled rate — rather
-   than a handful of ad-hoc files, to get stable latency/CPU percentiles instead of an
-   8-sample window.
-2. **`--watch-dir` target not yet decided.** Needs to point at whatever directories actually
-   matter for this use case on the real endpoint (e.g. Downloads/Desktop, or wherever the real
-   Swift `ContentScanner` would trigger) — currently an arbitrary directory for testing purposes.
-3. Recursive watching (`--recursive`), debounce tuning, and hidden-file handling are implemented
-   but not yet tuned against real usage patterns.
+**Results:**
+
+| Metric | Value |
+|---|---|
+| Files scanned | 300/300 (0 lost) |
+| Unreadable (graceful) | 11/300 — legacy `.doc` (encrypted/legacy format), a few `.png`/`.odt` (unsupported type), one genuine PDF parse panic (see below) |
+| Per-file scan latency | mean 38.2ms · p50 10.0ms · p95 69.0ms · p99 362.8ms · **max 4146.4ms** |
+| CPU utilization | mean **2.688%** (budget ≤3%) · p99 51.0% · max 171.5% (multi-core burst) |
+| Peak RSS | **165.1MB** (budget ≤50MB) |
+| fs events seen | 1,532 (≈5.1 raw events per file, all debounced correctly to one scan each) |
+
+**Three real findings, not just "it works":**
+
+1. **A previously-unseen `pdf-extract` panic was caught safely, exactly as designed.**
+   `Kenya_Sensitive_Data/NonMatches/SampleFile_Genetic_001.pdf` hit
+   `Content::decode(&content).unwrap()` (`vendor/pdf-extract/src/lib.rs:1616` — pre-existing
+   upstream code, not something the fixes in `PATCH.md` touched) on a stream that failed to
+   parse (`Parse(InvalidContentStream)`). `core/src/extract.rs`'s `catch_unwind` boundary caught
+   it: the file was reported `readable: false` with a note, the watcher process kept running,
+   and all 300 files completed normally (exit 0). The panic message still prints to stderr by
+   Rust's default panic hook even though it's caught — cosmetic, but worth knowing so it isn't
+   mistaken for an actual crash when watching the log live.
+2. **Peak RSS (165.1MB) confirms the already-documented residual, now in this specific
+   companion, for the first time.** The slowest file — `Colombia_PII/Matches/
+   SampleFile_BankAccountNumber_001.pdf` (5.4MB), 4.1 *seconds* to scan — is the same file
+   already identified in `rust/vendor/pdf-extract/PATCH.md`'s "Residual ~9% investigated
+   further" section (the struct-tree-heavy, `lopdf`-object-graph-load case). 165MB is *higher*
+   than that file's own previously-measured ~85-87MB, consistent with the also-already-documented
+   Mechanism B (allocator page retention across a long-lived process handling many sequential
+   files) compounding on top of it here, in a genuinely warm, sustained process for the first
+   time. This isn't a new bug — it's the documented, accepted limitation showing up exactly
+   where it was predicted to.
+3. **CPU margin is thinner on realistic content than the earlier smoke test suggested.** Mean
+   2.688% against a 3% budget is a real pass, but a much narrower margin than the 8-file smoke
+   test's 1.4% — driven by the corpus's natural mix including a handful of slow, large PDFs.
+   Worth re-checking if the real drop rate on an actual endpoint turns out faster than 1 file/1.5s.
+
+**Traceability check (not a scored efficacy metric — that comparison is Ben's separate effort
+against the labeled corpus):** of the 154 sampled files under a `Matches` ground-truth directory,
+99 (64.3%) fired at least one profile; of 132 under `NonMatches`, 66 (50.0%) fired at least one.
+This is a coarse "any profile at all" heuristic, not a per-policy precision/recall score (this
+engine's profile taxonomy doesn't map 1:1 to Nucleuz's per-policy definitions, and the rigorous,
+already-completed recall work in `nucleuz-recall-validation` found ~19.6% on proper per-policy
+scoring) — it only confirms detection isn't obviously broken and that the flattened-filename
+scheme successfully preserves ground truth for whoever runs the real comparison.
+
+### Open items
+
+1. **No per-file timeout/kill-switch.** Unlike `ch-inspect --scan --isolate` (which runs each
+   file in a child process with an RSS/time watchdog), this companion has no equivalent — a
+   single pathological file (4.1s here; could be worse) blocks the debounce/scan loop for that
+   long with no cap. Fine for a lab measurement; a real deployment would want one.
+2. **`--watch-dir` target still not decided.** Needs to point at whatever directories actually
+   matter on the real endpoint (Downloads/Desktop, or wherever the real Swift `ContentScanner`
+   would trigger) — this run used an arbitrary test directory.
+3. Recursive watching, debounce tuning, and hidden-file handling are implemented but not yet
+   tuned against real usage patterns.
 
 ## Phase 3 — clipboard companion (not started)
 
@@ -159,14 +210,25 @@ cd rust && cargo build --release -p ch-inspect-fs-watch
     --watch-dir <dir> --duration-sec 120
 ```
 
+The calibrated 300-file Nucleuz run's drop script (`phase2_calibrated_drop.py`) isn't committed
+to this repo — it's a one-off harness against the external/proprietary Nucleuz corpus path, same
+convention as the earlier `pdf-extract` survey scripts in `PATCH.md`. To re-derive it: sample N
+files (seeded, for reproducibility) from the corpus root, copy each into the watched directory
+as `{index}__{policy}__{Matches|NonMatches}__{original name}` (preserves ground truth in the
+filename for later analysis), sleeping a fixed interval between copies, while
+`ch-inspect-fs-watch` runs concurrently with `--duration-sec` comfortably longer than the total
+drop time (drop time + ~20% buffer worked well here).
+
 Both tools are read-only with respect to the content they inspect (they never write to or modify
 watched files/directories) and both fail closed — a hook error never blocks a Claude Code turn,
-and a watch error is logged and skipped, never a panic.
+a watch error is logged and skipped, and an extraction panic (see the calibrated run's findings
+above) is caught by `extract.rs`'s `catch_unwind` boundary rather than crashing the process.
 
 ## Next steps
 
-1. Run Phase 2 as a proper calibrated measurement (synthetic file-drop sequence, longer duration)
-   rather than the current smoke test, once the target watch directory/directories are decided.
-2. Build Phase 3 (clipboard companion).
+1. Add a per-file timeout/kill-switch to `ch-inspect-fs-watch`, mirroring `--scan --isolate`'s
+   RSS/time watchdog — the calibrated run has no cap today.
+2. Decide the real `--watch-dir` target(s) for this use case on the actual endpoint.
+3. Build Phase 3 (clipboard companion).
 3. Efficacy comparison (local vs. cloud vs. labeled corpus) — being run separately, outside this
    codebase; not tooling built here.
