@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "cli", "ffi", "hooks"]
+members = ["core", "cli", "ffi", "hooks", "fs-watch"]
 
 # Replaces crates.io's pdf-extract with our patched vendor copy for the WHOLE workspace, no
 # call-site changes needed anywhere. See vendor/pdf-extract/PATCH.md for exactly what's patched,

@@ -1,0 +1,29 @@
+# Phase 2 of the endpoint-impact lab evaluation (see ../../CLAUDE.md's "Working with Claude" and
+# the [[endpoint-ci-lab-evaluation-plan]] memory): a non-enforcing companion process that watches
+# a directory for file writes and scans each with ch-inspect-core, without touching the real
+# per-platform content scanners (C#/.NET on Windows, Swift on macOS, C/C++ on Linux).
+[package]
+name = "ch-inspect-fs-watch"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "ch-inspect-fs-watch"
+path = "src/main.rs"
+
+[dependencies]
+ch-inspect-core = { path = "../core" }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The one new dependency this crate needs: native OS file-watching (FSEvents on macOS, the lab
+# endpoint's platform) has no stdlib equivalent, and polling a directory tree by hand would cost
+# real CPU on exactly the budget this tool exists to measure. Actively maintained, widely used
+# (cargo-watch, rust-analyzer's file watching).
+notify = "6"
+# Peak-RSS/CPU-time reading (getrusage) -- same OS-level plumbing as ../cli/src/rss.rs, and kept
+# separate for the same reason noted there: process/OS concerns don't belong in the portable core
+# crate. Duplicated rather than shared because it's ~50 lines and the two binaries otherwise have
+# no reason to depend on each other.
+libc = "0.2"
