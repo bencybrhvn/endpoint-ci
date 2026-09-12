@@ -109,8 +109,13 @@ line per scanned file to `~/.ch-inspect-shadow/fswatch_events.jsonl`.
 
 ```
 ch-inspect-fs-watch --rules config/rules.json --watch-dir <dir> \
-    --duration-sec 120 --debounce-ms 300 --sample-interval-sec 1
+    --duration-sec 120 --debounce-ms 300 --sample-interval-sec 1 \
+    --max-file-mb 16 --isolate-above-mb 16 --rss-cap-mb 512 --file-timeout-sec 8
 ```
+
+`--max-file-mb`/`--isolate-above-mb`/`--rss-cap-mb`/`--file-timeout-sec` are configurable per
+deployment (see "Per-file isolation + configurable size gate" below) — the defaults shown match
+`ch-inspect --scan --isolate`'s.
 
 ### Mechanism smoke test (2026-09-11)
 
@@ -178,17 +183,49 @@ already-completed recall work in `nucleuz-recall-validation` found ~19.6% on pro
 scoring) — it only confirms detection isn't obviously broken and that the flattened-filename
 scheme successfully preserves ground truth for whoever runs the real comparison.
 
+### Per-file isolation + configurable size gate (2026-09-12)
+
+Prompted by a real question: on-prem file sizes can exceed what's been tested so far, and the
+size gate needed to be configurable. Investigating surfaced a fact worth being explicit about —
+**`--max-file-mb` (the extraction-layer size gate) does not bound PDF/OOXML parsing cost at
+all.** It only truncates plaintext files and the *extracted text* from PDF/OOXML after
+`pdf-extract` has already fully parsed the document (confirmed in `core/src/extract.rs`). So
+raising it does nothing for the known large-PDF residual RSS issue documented in
+`vendor/pdf-extract/PATCH.md`. Simply raising the gate for "bigger on-prem files" would have been
+the wrong fix.
+
+Instead, ported `cli/src/scan.rs`'s `--scan --isolate` mechanism — the same one already proven
+against the real PDF-bomb class — into `fs-watch`: **files at or above `--isolate-above-mb`
+now run in a child process with an RSS-cap + timeout watchdog** (`--rss-cap-mb`,
+`--file-timeout-sec`), so a large or pathological file can only kill its own child, not the
+watcher. Smaller files still run in the fast, warm, in-process path Phase 1/2 was originally
+measured with — this only changes behavior for files above the threshold. `--max-file-mb` is now
+also configurable here (previously hardcoded via `extract::Config::default()`).
+
+Validated end-to-end with real runs, not just unit tests (the isolation mechanism can't be
+meaningfully unit-tested — `std::env::current_exe()` resolves to the test harness binary under
+`cargo test`, not a binary that understands `--rules`/`--file`, the same limitation `--scan
+--isolate` already has):
+- A 36-byte file stayed in-process (`isolated: false`); a 3.8MB file (threshold set to 1MB)
+  correctly ran isolated (`isolated: true`) and still detected PCI/PII correctly.
+- The already-known slow Colombia PDF (~4.1s to scan, see the calibrated-run findings above),
+  run against a 1-second timeout, was correctly killed by the watchdog after ~1.14s
+  (`killed: true`, no `report` field) — and the watcher process itself kept running cleanly
+  through its full duration afterward.
+- A real integer-overflow bug was caught during this work: the size-threshold check
+  (`isolate_above_mb * 1MB`) overflowed `u64` when a caller passed `u64::MAX` to mean "never
+  isolate," panicking on every file. Fixed with `saturating_mul`; now covered by a unit test.
+
 ### Open items
 
-1. **No per-file timeout/kill-switch.** Unlike `ch-inspect --scan --isolate` (which runs each
-   file in a child process with an RSS/time watchdog), this companion has no equivalent — a
-   single pathological file (4.1s here; could be worse) blocks the debounce/scan loop for that
-   long with no cap. Fine for a lab measurement; a real deployment would want one.
-2. **`--watch-dir` target still not decided.** Needs to point at whatever directories actually
+1. **`--watch-dir` target still not decided.** Needs to point at whatever directories actually
    matter on the real endpoint (Downloads/Desktop, or wherever the real Swift `ContentScanner`
-   would trigger) — this run used an arbitrary test directory.
-3. Recursive watching, debounce tuning, and hidden-file handling are implemented but not yet
+   would trigger) — runs so far used an arbitrary test directory.
+2. Recursive watching, debounce tuning, and hidden-file handling are implemented but not yet
    tuned against real usage patterns.
+3. Isolation adds real overhead per large file (process spawn + a fresh rules load, ~17-20ms per
+   Phase 1's measurement) — fine given it only applies above the threshold, but worth remembering
+   if `--isolate-above-mb` is set very low.
 
 ## Phase 3 — clipboard companion (not started)
 
